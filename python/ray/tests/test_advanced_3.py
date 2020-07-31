@@ -14,11 +14,9 @@ import pytest
 import ray
 import ray.ray_constants as ray_constants
 import ray.cluster_utils
-import ray.test_utils
-import setproctitle
-
 from ray.test_utils import (check_call_ray, RayTestTimeoutException,
-                            wait_for_num_actors)
+                            wait_for_num_actors, wait_for_condition)
+import setproctitle
 
 logger = logging.getLogger(__name__)
 
@@ -652,9 +650,8 @@ def test_lease_request_leak(shutdown_only):
         del obj_ref
     ray.get(tasks)
 
-    time.sleep(
-        1)  # Sleep for an amount longer than the reconstruction timeout.
-    assert len(ray.objects()) == 0, ray.objects()
+    wait_for_condition(
+        lambda: len(ray.objects()) == 0, timeout=5), ray.objects()
 
 
 @pytest.mark.parametrize(
