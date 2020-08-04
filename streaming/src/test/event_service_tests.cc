@@ -1,14 +1,15 @@
 #include <thread>
+
 #include "event_service.h"
 #include "gtest/gtest.h"
 
 using namespace ray::streaming;
 
 /// Mock function for send empty message.
-bool SendEmptyToChannel(ProducerChannelInfo *info) { return true; }
+bool SendEmptyToChannel(ProducerChannelInfo* info) { return true; }
 
 /// Mock function for write all messages to channel.
-bool WriteAllToChannel(ProducerChannelInfo *info) { return true; }
+bool WriteAllToChannel(ProducerChannelInfo* info) { return true; }
 
 TEST(EventServiceTest, Test1) {
   std::shared_ptr<EventService> server = std::make_shared<EventService>();
@@ -74,7 +75,7 @@ TEST(EventServiceTest, remove_delete_channel_event) {
   mock_channel_info2.channel_id = channel_vec.back();
   mock_channel_info_vec.push_back(mock_channel_info2);
 
-  for (auto &id : mock_channel_info_vec) {
+  for (auto& id : mock_channel_info_vec) {
     Event empty_event{&id, EventType::EmptyEvent, true};
     Event user_event{&id, EventType::UserEvent, true};
     Event flow_event{&id, EventType::FlowEvent, true};
@@ -86,7 +87,7 @@ TEST(EventServiceTest, remove_delete_channel_event) {
   server->RemoveDestroyedChannelEvent(removed_vec);
 }
 
-int main(int argc, char **argv) {
+int main(int argc, char** argv) {
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }

@@ -13,6 +13,7 @@
 // limitations under the License.
 
 #include "ray/gcs/store_client/redis_store_client.h"
+
 #include "ray/common/test_util.h"
 #include "ray/gcs/redis_client.h"
 #include "ray/gcs/store_client/test/store_client_test_base.h"
@@ -59,7 +60,7 @@ TEST_F(RedisStoreClientTest, AsyncGetAllAndBatchDeleteTest) {
 
 }  // namespace ray
 
-int main(int argc, char **argv) {
+int main(int argc, char** argv) {
   InitShutdownRAII ray_log_shutdown_raii(ray::RayLog::StartRayLog,
                                          ray::RayLog::ShutDownRayLog, argv[0],
                                          ray::RayLogLevel::INFO,

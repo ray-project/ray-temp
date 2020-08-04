@@ -13,6 +13,7 @@
 // limitations under the License.
 
 #include "ray/gcs/store_client/in_memory_store_client.h"
+
 #include "ray/gcs/store_client/test/store_client_test_base.h"
 
 namespace ray {
@@ -42,7 +43,7 @@ TEST_F(InMemoryStoreClientTest, AsyncGetAllAndBatchDeleteTest) {
 
 }  // namespace ray
 
-int main(int argc, char **argv) {
+int main(int argc, char** argv) {
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }

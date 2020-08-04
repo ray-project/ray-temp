@@ -17,6 +17,7 @@
 #include <atomic>
 #include <list>
 #include <mutex>
+
 #include "ray/gcs/callback.h"
 #include "ray/gcs/tables.h"
 
@@ -31,7 +32,7 @@ namespace gcs {
 template <typename ID, typename Data, typename Table>
 class SubscriptionExecutor {
  public:
-  explicit SubscriptionExecutor(Table &table) : table_(table) {}
+  explicit SubscriptionExecutor(Table& table) : table_(table) {}
 
   ~SubscriptionExecutor() {}
 
@@ -45,9 +46,9 @@ class SubscriptionExecutor {
   /// is registered or updated.
   /// \param done Callback that will be called when subscription is complete.
   /// \return Status
-  Status AsyncSubscribeAll(const ClientID &client_id,
-                           const SubscribeCallback<ID, Data> &subscribe,
-                           const StatusCallback &done);
+  Status AsyncSubscribeAll(const ClientID& client_id,
+                           const SubscribeCallback<ID, Data>& subscribe,
+                           const StatusCallback& done);
 
   /// Subscribe to operations of an element.
   /// Repeated subscription to an element will return a failure.
@@ -60,9 +61,9 @@ class SubscriptionExecutor {
   /// is registered or updated.
   /// \param done Callback that will be called when subscription is complete.
   /// \return Status
-  Status AsyncSubscribe(const ClientID &client_id, const ID &id,
-                        const SubscribeCallback<ID, Data> &subscribe,
-                        const StatusCallback &done);
+  Status AsyncSubscribe(const ClientID& client_id, const ID& id,
+                        const SubscribeCallback<ID, Data>& subscribe,
+                        const StatusCallback& done);
 
   /// Cancel subscription to an element.
   /// Unsubscribing can only be called after the subscription request is completed.
@@ -73,11 +74,11 @@ class SubscriptionExecutor {
   /// \param id The id of the element to be unsubscribed to.
   /// \param done Callback that will be called when cancel subscription is complete.
   /// \return Status
-  Status AsyncUnsubscribe(const ClientID &client_id, const ID &id,
-                          const StatusCallback &done);
+  Status AsyncUnsubscribe(const ClientID& client_id, const ID& id,
+                          const StatusCallback& done);
 
  private:
-  Table &table_;
+  Table& table_;
 
   std::mutex mutex_;
 

@@ -1,6 +1,7 @@
 
 #include <gtest/gtest.h>
 #include <ray/api.h>
+
 #include <future>
 #include <thread>
 
@@ -19,8 +20,8 @@ class Counter {
 
   Counter() { count = 0; }
 
-  static Counter *FactoryCreate() {
-    Counter *counter = new Counter();
+  static Counter* FactoryCreate() {
+    Counter* counter = new Counter();
     return counter;
   }
 

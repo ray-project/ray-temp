@@ -12,8 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include "gmock/gmock.h"
-#include "gtest/gtest.h"
+#include "ray/stats/metric_exporter_client.h"
 
 #include <chrono>
 #include <iostream>
@@ -21,10 +20,11 @@
 #include <vector>
 
 #include "absl/memory/memory.h"
+#include "gmock/gmock.h"
+#include "gtest/gtest.h"
 #include "opencensus/stats/internal/delta_producer.h"
 #include "opencensus/stats/internal/stats_exporter_impl.h"
 #include "ray/stats/metric_exporter.h"
-#include "ray/stats/metric_exporter_client.h"
 #include "ray/stats/stats.h"
 
 namespace ray {
@@ -43,7 +43,7 @@ class MockExporterClient1 : public MetricExporterDecorator {
         lastest_hist_mean(0.0),
         lastest_hist_max(0.0) {}
 
-  void ReportMetrics(const std::vector<MetricPoint> &points) override {
+  void ReportMetrics(const std::vector<MetricPoint>& points) override {
     if (points.empty()) {
       return;
     }
@@ -63,8 +63,8 @@ class MockExporterClient1 : public MetricExporterDecorator {
   double GetLastestHistMax() { return lastest_hist_max; }
 
  private:
-  void RecordLastHistData(const std::vector<MetricPoint> &points) {
-    for (auto &point : points) {
+  void RecordLastHistData(const std::vector<MetricPoint>& points) {
+    for (auto& point : points) {
       if (point.metric_name.find(".min") != std::string::npos) {
         lastest_hist_min = point.value;
       }
@@ -89,7 +89,7 @@ class MockExporterClient2 : public MetricExporterDecorator {
  public:
   MockExporterClient2(std::shared_ptr<MetricExporterClient> exporter)
       : MetricExporterDecorator(exporter), client2_count(0), client2_value(0) {}
-  void ReportMetrics(const std::vector<MetricPoint> &points) override {
+  void ReportMetrics(const std::vector<MetricPoint>& points) override {
     if (points.empty()) {
       return;
     }
@@ -184,7 +184,7 @@ TEST_F(MetricExporterClientTest, exporter_client_caculation_test) {
 
 }  // namespace ray
 
-int main(int argc, char **argv) {
+int main(int argc, char** argv) {
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }

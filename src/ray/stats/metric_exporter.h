@@ -16,7 +16,6 @@
 #include "absl/memory/memory.h"
 #include "opencensus/stats/stats.h"
 #include "opencensus/tags/tag_key.h"
-
 #include "ray/stats/metric.h"
 #include "ray/stats/metric_exporter_client.h"
 #include "ray/util/logging.h"
@@ -46,7 +45,7 @@ class MetricExporter final : public opencensus::stats::StatsExporter::Handler {
 
   void ExportViewData(
       const std::vector<std::pair<opencensus::stats::ViewDescriptor,
-                                  opencensus::stats::ViewData>> &data) override;
+                                  opencensus::stats::ViewData>>& data) override;
 
  private:
   template <class DTYPE>
@@ -56,11 +55,11 @@ class MetricExporter final : public opencensus::stats::StatsExporter::Handler {
   /// \param metric_name, metric name of view data
   /// \param keys, metric tags map
   /// \param points, memory metric vector instance
-  void ExportToPoints(const opencensus::stats::ViewData::DataMap<DTYPE> &view_data,
-                      const opencensus::stats::MeasureDescriptor &measure_descriptor,
-                      std::vector<std::string> &keys, std::vector<MetricPoint> &points) {
-    const auto &metric_name = measure_descriptor.name();
-    for (const auto &row : view_data) {
+  void ExportToPoints(const opencensus::stats::ViewData::DataMap<DTYPE>& view_data,
+                      const opencensus::stats::MeasureDescriptor& measure_descriptor,
+                      std::vector<std::string>& keys, std::vector<MetricPoint>& points) {
+    const auto& metric_name = measure_descriptor.name();
+    for (const auto& row : view_data) {
       std::unordered_map<std::string, std::string> tags;
       for (size_t i = 0; i < keys.size(); ++i) {
         tags[keys[i]] = row.first[i];

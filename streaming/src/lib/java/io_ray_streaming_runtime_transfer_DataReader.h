@@ -10,11 +10,12 @@ extern "C" {
 /*
  * Class:     io_ray_streaming_runtime_transfer_DataReader
  * Method:    createDataReaderNative
- * Signature: (Lio/ray/streaming/runtime/transfer/ChannelCreationParametersBuilder;[[B[J[JJZ[BZ)J
+ * Signature:
+ * (Lio/ray/streaming/runtime/transfer/ChannelCreationParametersBuilder;[[B[J[JJZ[BZ)J
  */
 JNIEXPORT jlong JNICALL
 Java_io_ray_streaming_runtime_transfer_DataReader_createDataReaderNative(
-    JNIEnv *, jclass, jobject, jobjectArray, jlongArray, jlongArray, jlong, jboolean,
+    JNIEnv*, jclass, jobject, jobjectArray, jlongArray, jlongArray, jlong, jboolean,
     jbyteArray, jboolean);
 
 /*
@@ -23,7 +24,7 @@ Java_io_ray_streaming_runtime_transfer_DataReader_createDataReaderNative(
  * Signature: (JJJJ)V
  */
 JNIEXPORT void JNICALL Java_io_ray_streaming_runtime_transfer_DataReader_getBundleNative(
-    JNIEnv *, jobject, jlong, jlong, jlong, jlong);
+    JNIEnv*, jobject, jlong, jlong, jlong, jlong);
 
 /*
  * Class:     io_ray_streaming_runtime_transfer_DataReader
@@ -31,7 +32,7 @@ JNIEXPORT void JNICALL Java_io_ray_streaming_runtime_transfer_DataReader_getBund
  * Signature: (J)V
  */
 JNIEXPORT void JNICALL Java_io_ray_streaming_runtime_transfer_DataReader_stopReaderNative(
-    JNIEnv *, jobject, jlong);
+    JNIEnv*, jobject, jlong);
 
 /*
  * Class:     io_ray_streaming_runtime_transfer_DataReader
@@ -39,7 +40,7 @@ JNIEXPORT void JNICALL Java_io_ray_streaming_runtime_transfer_DataReader_stopRea
  * Signature: (J)V
  */
 JNIEXPORT void JNICALL
-Java_io_ray_streaming_runtime_transfer_DataReader_closeReaderNative(JNIEnv *, jobject,
+Java_io_ray_streaming_runtime_transfer_DataReader_closeReaderNative(JNIEnv*, jobject,
                                                                     jlong);
 
 #ifdef __cplusplus
