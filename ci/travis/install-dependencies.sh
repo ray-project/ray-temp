@@ -36,9 +36,18 @@ install_base() {
       pkg_install_helper build-essential curl unzip libunwind-dev python3-pip python3-setuptools \
         tmux gdb
       if [ "${LINUX_WHEELS-}" = 1 ]; then
-        pkg_install_helper docker
-        if [ -n "${TRAVIS-}" ]; then
-          sudo usermod -a -G docker travis
+        if [ -x "$(command -v docker)" ]; then
+          echo 'Docker is already installed'
+          docker --version
+        else
+          pkg_install_helper docker
+          if [ -n "${SYSTEM_COLLECTIONID-}" ]; then
+            sudo usermod -a -G docker vsts
+          elif [ -n "${TRAVIS-}" ]; then
+            sudo usermod -a -G docker travis
+          elif [ -n "${SYSTEM_JOBID-}" ]; then
+            sudo usermod -a -G docker vsts
+          fi
         fi
       fi
       if [ -n "${PYTHON-}" ]; then
@@ -85,7 +94,8 @@ install_miniconda() {
         conda="${miniconda_dir}\Scripts\conda.exe"
         ;;
       *)
-        mkdir -p -- "${miniconda_dir}"
+        sudo mkdir -p -- "${miniconda_dir}"
+        sudo chmod 777 "${miniconda_dir}"
         # We're forced to pass -b for non-interactive mode.
         # Unfortunately it inhibits PATH modifications as a side effect.
         "${miniconda_target}" -f -b -p "${miniconda_dir}" | grep --line-buffered -v \
@@ -122,7 +132,13 @@ install_miniconda() {
     (
       set +x
       echo "Updating Anaconda Python ${python_version} to ${PYTHON}..."
-      conda install -q -y python="${PYTHON}"
+      if [ -n "${SYSTEM_COLLECTIONID-}" ] && [ -z "${OSTYPE##darwin*}" ]; then
+        mkdir -p /usr/local/miniconda/pkgs/cache
+        sudo chown -R 501:20 /usr/local/miniconda/
+      else
+        echo "No darwin: ${SYSTEM_COLLECTIONID} - ${OSTYPE}"
+      fi
+      conda install --show-channel-urls -v -y --force-reinstall python="${PYTHON}"
     )
   fi
 
@@ -187,8 +203,15 @@ install_node() {
     (
       set +x # suppress set -x since it'll get very noisy here
       . "${HOME}/.nvm/nvm.sh"
-      nvm install node
-      nvm use --silent node
+      if which node > /dev/null
+      then
+        echo "node is installed - node: $(node -v) - npm: $(npm -v), skipping..."
+      else
+        echo "node not installed, installing..."
+
+        nvm install node
+        nvm use --silent node
+      fi
       npm config set loglevel warn  # make NPM quieter
     )
   fi
@@ -198,6 +221,31 @@ install_toolchains() {
   "${ROOT_DIR}"/install-toolchains.sh
 }
 
+install_kubebuilder() {
+  echo "installing kubebuilder for testing purposes"
+  version=1.0.8 # latest stable version
+  arch=amd64
+  case "${OSTYPE}" in
+    darwin*)
+      # download the release
+      curl -L -O "https://github.com/kubernetes-sigs/kubebuilder/releases/download/v${version}/kubebuilder_${version}_darwin_${arch}.tar.gz"
+      # extract the archive
+      tar -zxvf kubebuilder_${version}_darwin_${arch}.tar.gz
+      mv kubebuilder_${version}_darwin_${arch} kubebuilder && sudo mv kubebuilder /usr/local/
+      ;;
+    linux*)
+        # download the release
+      curl -L -O "https://github.com/kubernetes-sigs/kubebuilder/releases/download/v${version}/kubebuilder_${version}_linux_${arch}.tar.gz"
+      # extract the archive
+      tar -zxvf kubebuilder_${version}_linux_${arch}.tar.gz
+      mv kubebuilder_${version}_linux_${arch} kubebuilder && sudo mv kubebuilder /usr/local/
+      ;;
+    *) false;;
+  esac
+  # update your PATH to include /usr/local/kubebuilder/bin
+  export PATH=$PATH:/usr/local/kubebuilder/bin
+}
+
 install_dependencies() {
 
   install_bazel
@@ -205,6 +253,7 @@ install_dependencies() {
   install_toolchains
   install_nvm
   install_pip
+  install_kubebuilder # to enable testing with an in-memory k8s api-server
 
   if [ -n "${PYTHON-}" ] || [ "${LINT-}" = 1 ]; then
     install_miniconda
@@ -231,12 +280,14 @@ install_dependencies() {
       opencv-python-headless pyyaml pandas==1.0.5 requests feather-format lxml openpyxl xlrd \
       py-spy pytest pytest-timeout networkx tabulate aiohttp uvicorn dataclasses pygments werkzeug \
       kubernetes flask grpcio pytest-sugar pytest-rerunfailures pytest-asyncio scikit-learn==0.22.2 numba \
-      Pillow prometheus_client boto3)
+      Pillow prometheus_client boto3 urllib3 numpy pickle5==0.0.11)
     if [ "${OSTYPE}" != msys ]; then
       # These packages aren't Windows-compatible
       pip_packages+=(blist)  # https://github.com/DanielStutzbach/blist/issues/81#issue-391460716
     fi
 
+    pip install --upgrade pip
+    pip install --upgrade setuptools
     # Try n times; we often encounter OpenSSL.SSL.WantReadError (or others)
     # that break the entire CI job: Simply retry installation in this case
     # after n seconds.
@@ -250,6 +301,7 @@ install_dependencies() {
     if [ "$status" != "0" ]; then
       echo "${status}" && return 1
     fi
+    python -m site
   fi
 
   if [ "${LINT-}" = 1 ]; then
