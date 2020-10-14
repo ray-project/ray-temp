@@ -21,24 +21,29 @@ def test_actor_groups(ray_start_with_dashboard):
     @ray.remote
     class Foo:
         def __init__(self, num):
+            print("Starting up printed")
             self.num = num
 
         def do_task(self):
-            return self.num
+            print("printing returning num")
+            raise ValueError("UH OH!!!!")
 
     @ray.remote(num_gpus=1)
     class InfeasibleActor:
         pass
 
-    foo_actors = [Foo.remote(4), Foo.remote(5)]
+    foo_actor = Foo.remote(4)
     infeasible_actor = InfeasibleActor.remote()  # noqa
-    results = [actor.do_task.remote() for actor in foo_actors]  # noqa
+    try:
+        result = ray.get(foo_actor.do_task.remote())  # noqa
+    except ValueError:
+        pass
     assert (wait_until_server_available(ray_start_with_dashboard["webui_url"])
             is True)
     webui_url = ray_start_with_dashboard["webui_url"]
     webui_url = format_web_url(webui_url)
 
-    timeout_seconds = 5
+    timeout_seconds = 20
     start_time = time.time()
     last_ex = None
     while True:
@@ -55,11 +60,17 @@ def test_actor_groups(ray_start_with_dashboard):
             # 2 __init__ tasks and 2 do_task tasks
             assert summary["numExecutedTasks"] == 4
             assert summary["stateToCount"]["ALIVE"] == 2
+            assert summary["numLogs"] == 1
+            assert summary["numErrors"] == 1
 
             entries = actor_groups["Foo"]["entries"]
-            assert len(entries) == 2
-            assert "InfeasibleActor" in actor_groups
+            assert len(entries) == 1
+            assert "logs" in entries[0]
+            assert "errors" in entries[0]
+            assert len(entries[0]["logs"]) == 1
+            assert len(entries[0]["errors"]) == 1
 
+            assert "InfeasibleActor" in actor_groups
             entries = actor_groups["InfeasibleActor"]["entries"]
             assert "requiredResources" in entries[0]
             assert "GPU" in entries[0]["requiredResources"]

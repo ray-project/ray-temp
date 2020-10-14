@@ -39,10 +39,8 @@ export type RayConfigResponse = {
 
 export const getRayConfig = () => get<RayConfigResponse>("/api/ray_config", {});
 
-export type Worker = {
+type ProcessStats = {
   pid: number;
-  workerId: string;
-  createTime: number;
   memoryInfo: {
     rss: number;
     vms: number;
@@ -52,6 +50,7 @@ export type Worker = {
     data: number;
     dirty: Number;
   };
+  createTime: number;
   cmdline: string[];
   cpuTimes: {
     user: number;
@@ -61,12 +60,17 @@ export type Worker = {
     iowait: number;
   };
   cpuPercent: number;
+}
+
+export type Worker = {
+  pid: number;
+  workerId: string;
   logCount: number;
   errorCount: number;
   language: string;
   jobId: string;
   coreWorkerStats: CoreWorkerStats[];
-};
+} & ProcessStats;
 
 export type CoreWorkerStats = {
   ipAddress: string;
@@ -207,6 +211,8 @@ export type FullActorInfo = {
   actorClass: string;
   ipAddress: string;
   jobId: string;
+  logs: string[];
+  errors: ErrorMessage[];
   nodeId: string;
   numExecutedTasks?: number;
   numLocalObjects?: number;
@@ -220,12 +226,14 @@ export type FullActorInfo = {
     | ActorState.DependenciesUnready
     | ActorState.PendingCreation;
   taskQueueLength?: number;
+  gpus: GPUStats[]; // Contains info about any GPUs the actor is using
   timestamp: number;
   usedObjectStoreMemory?: number;
   usedResources: { [key: string]: ResourceAllocations };
   currentTaskDesc?: string;
   numPendingTasks?: number;
   webuiDisplay?: Record<string, string>;
+  processStats: ProcessStats;
 };
 
 export type ActorTaskInfo = {
@@ -253,6 +261,8 @@ export type ActorGroupSummary = {
   avgLifetime: number;
   maxLifetime: number;
   numExecutedTasks: number;
+  numLogs: number;
+  numErrors: number;
 };
 
 export type ActorGroup = {
@@ -271,12 +281,15 @@ export type ErrorsResponse = {
 };
 
 export type ErrorsByPid = {
-  [pid: string]: {
-    message: string;
-    timestamp: number;
-    type: string;
-  }[];
+  [pid: string]: ErrorMessage[];
 };
+
+type ErrorMessage = {
+  message: string;
+  timestamp: number;
+  type: string;
+};
+
 export const getErrors = (nodeIp: string, pid: number | null) =>
   get<ErrorsResponse>("/node_errors", {
     nodeIp,

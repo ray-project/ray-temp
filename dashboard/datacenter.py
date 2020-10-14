@@ -1,6 +1,7 @@
 import logging
 import ray.new_dashboard.consts as dashboard_consts
 import ray.new_dashboard.memory_utils as memory_utils
+from collections import defaultdict
 from ray.new_dashboard.actor_utils import actor_classname_from_task_spec
 from ray.new_dashboard.utils import Dict, Signal
 
@@ -61,18 +62,45 @@ class DataOrganizer:
     @classmethod
     async def get_node_actors(cls, node_id):
         node_stats = DataSource.node_stats.get(node_id, {})
-        worker_id_to_info = {}
+        node_physical_stats = DataSource.node_physical_stats.get(node_id, {})
+        node_ip = DataSource.node_id_to_ip[node_id]
+        node_logs = DataSource.ip_and_pid_to_logs.get(node_ip, {})
+
+        node_errs = DataSource.ip_and_pid_to_errors.get(node_ip, {})
+        worker_id_to_raylet_info = {}
+        worker_id_to_process_info = {}
+        worker_id_to_gpu_stats = defaultdict(list)
+        pid_to_worker_id = {}
+        worker_id_to_pid = {}
+
         for worker_stats in node_stats.get("workersStats", []):
-            worker_id_to_info[worker_stats["workerId"]] = worker_stats
+            worker_id_to_raylet_info[worker_stats["workerId"]] = worker_stats
+            pid_to_worker_id[worker_stats["pid"]] = worker_stats["workerId"]
+            worker_id_to_pid[worker_stats["workerId"]] = worker_stats["pid"]
+
+        for process_stats in node_physical_stats.get("workers"):
+            if process_stats["pid"] in pid_to_worker_id:
+                worker_id = pid_to_worker_id[process_stats["pid"]]
+                worker_id_to_process_info[worker_id] = process_stats
+
+        for gpu_stats in node_physical_stats.get("gpus"):
+            for process in gpu_stats.get("processes", []):
+                if process["pid"] in pid_to_worker_id:
+                    worker_id = pid_to_worker_id[process["pid"]]
+                    worker_id_to_gpu_stats[worker_id].append(gpu_stats)
 
         node_actors = {}
         for actor_id, actor_table_data in DataSource.actors.items():
-            if actor_table_data["address"]["workerId"] in worker_id_to_info:
-                worker_stats = worker_id_to_info[actor_table_data["address"][
-                    "workerId"]]
-
-                actor_constructor = worker_stats.get("coreWorkerStats", {})\
-                    .get("actorTitle", "Unknown actor constructor")
+            worker_id = actor_table_data["address"]["workerId"]
+            if worker_id in worker_id_to_raylet_info:
+                actor_pid = str(worker_id_to_pid[worker_id])
+                actor_logs = node_logs.get(actor_pid, [])
+                actor_errs = node_errs.get(actor_pid, [])
+                worker_raylet_stats = worker_id_to_raylet_info[worker_id]
+                core_worker = worker_raylet_stats.get("coreWorkerStats", {})
+                actor_table_data.update(core_worker)
+                actor_constructor = core_worker.get(
+                    "actorTitle", "Unknown actor constructor")
 
                 actor_table_data["actorConstructor"] = actor_constructor
 
@@ -80,7 +108,13 @@ class DataOrganizer:
                     actor_table_data.get("taskSpec", {}))
 
                 actor_table_data["actorClass"] = actor_class
-                actor_table_data.update(worker_stats["coreWorkerStats"])
+                actor_table_data["logs"] = actor_logs
+                actor_table_data["errors"] = actor_errs
+                actor_table_data["gpus"] = worker_id_to_gpu_stats.get(
+                    worker_id, [])
+                actor_table_data[
+                    "processStats"] = worker_id_to_process_info.get(
+                        worker_id, {})
                 node_actors[actor_id] = actor_table_data
         return node_actors
 
