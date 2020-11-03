@@ -5,7 +5,7 @@
 # Cause the script to exit if a single command fails
 set -euo pipefail
 
-FLAKE8_VERSION_REQUIRED="3.7.7"
+FLAKE8_VERSION_REQUIRED="3.8.4"
 YAPF_VERSION_REQUIRED="0.23.0"
 SHELLCHECK_VERSION_REQUIRED="0.7.1"
 MYPY_VERSION_REQUIRED="0.782"
@@ -114,7 +114,7 @@ GIT_LS_EXCLUDES=(
 # of these arguments to this location, but the long-term answer is to actually
 # make a flake8 config file
 FLAKE8_EXCLUDE="--exclude=python/ray/core/generated/,streaming/python/generated,doc/source/conf.py,python/ray/cloudpickle/,python/ray/thirdparty_files/,python/build/,python/.eggs/"
-FLAKE8_IGNORES="--ignore=C408,E121,E123,E126,E226,E24,E704,W503,W504,W605"
+FLAKE8_IGNORES="--ignore=C408,E121,E123,E126,E226,E24,E704,E741,W503,W504,W605"
 FLAKE8_PYX_IGNORES="--ignore=C408,E121,E123,E126,E211,E225,E226,E227,E24,E704,E999,W503,W504,W605"
 
 shellcheck_scripts() {
