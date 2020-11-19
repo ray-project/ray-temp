@@ -218,6 +218,7 @@ void GcsServer::InitGcsActorManager() {
         // node is removed from the GCS.
         gcs_placement_group_manager_->OnNodeDead(NodeID::FromBinary(node->node_id()));
         gcs_actor_manager_->OnNodeDead(NodeID::FromBinary(node->node_id()));
+        gcs_job_manager_->OnNodeDead(NodeID::FromBinary(node->node_id()));
       });
 
   auto on_subscribe = [this](const std::string &id, const std::string &data) {
@@ -233,8 +234,8 @@ void GcsServer::InitGcsActorManager() {
 }
 
 void GcsServer::InitGcsJobManager() {
-  gcs_job_manager_ =
-      std::unique_ptr<GcsJobManager>(new GcsJobManager(gcs_table_storage_, gcs_pub_sub_));
+  gcs_job_manager_ = std::unique_ptr<GcsJobManager>(
+      new GcsJobManager(gcs_table_storage_, gcs_pub_sub_, gcs_node_manager_));
   gcs_job_manager_->AddJobFinishedListener([this](std::shared_ptr<JobID> job_id) {
     gcs_actor_manager_->OnJobFinished(*job_id);
     gcs_placement_group_manager_->CleanPlacementGroupIfNeededWhenJobDead(*job_id);
@@ -310,9 +311,10 @@ void GcsServer::PrintDebugInfo() {
   // TODO(ffbin): We will get the session_dir in the next PR, and write the log to
   // gcs_debug_state.txt.
   RAY_LOG(INFO) << stream.str();
-  execute_after(main_service_, [this] { PrintDebugInfo(); },
-                (RayConfig::instance().gcs_dump_debug_log_interval_minutes() *
-                 60000) /* milliseconds */);
+  execute_after(
+      main_service_, [this] { PrintDebugInfo(); },
+      (RayConfig::instance().gcs_dump_debug_log_interval_minutes() *
+       60000) /* milliseconds */);
 }
 
 }  // namespace gcs

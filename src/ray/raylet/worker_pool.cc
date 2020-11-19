@@ -48,6 +48,18 @@ bool RemoveWorker(
   return worker_pool.erase(worker) > 0;
 }
 
+// A helper function to fill job id for string.
+std::string FillJobId(std::string path_tmpl, const ray::JobID &job_id) {
+  // replace job_id
+  auto pos = path_tmpl.find(kWorkerCommandJobIdPlaceholder);
+  if (pos == std::string::npos) {
+    return path_tmpl;
+  } else {
+    path_tmpl.replace(pos, strlen(kWorkerCommandJobIdPlaceholder), job_id.Hex());
+    return path_tmpl;
+  }
+}
+
 }  // namespace
 
 namespace ray {
@@ -272,6 +284,12 @@ Process WorkerPool::StartWorkerProcess(
       switch (language) {
       case Language::JAVA:
         for (auto &entry : raylet_config_) {
+          if (entry.first == "job_python_path_template") {
+            continue;
+          }
+          if (entry.first == "job_dir_template") {
+            continue;
+          }
           if (entry.first == "num_workers_per_process_java") {
             continue;
           }
@@ -326,6 +344,14 @@ Process WorkerPool::StartWorkerProcess(
                                   RayConfig::instance().object_spilling_config());
   }
 
+  if (language == Language::PYTHON) {
+    if (job_id.IsSubmittedFromDashboard()) {
+      std::string path_tmpl = RayConfig::instance().job_python_path_template();
+      std::string path = FillJobId(path_tmpl, job_id);
+      worker_command_args[0] = path;
+    }
+  }
+
   ProcessEnvironment env;
   if (RayConfig::instance().enable_multi_tenancy() && !IsIOWorkerType(worker_type)) {
     // We pass the job ID to worker processes via an environment variable, so we don't
@@ -340,7 +366,11 @@ Process WorkerPool::StartWorkerProcess(
     env[pair.first] = pair.second;
   }
 
-  Process proc = StartProcess(worker_command_args, env);
+  const std::string job_dir = FillJobId(raylet_config_["job_dir_template"], job_id);
+  env.emplace("RAY_JOB_ID", job_id.Hex());
+  env.emplace("RAY_JOB_DIR", job_dir);
+
+  Process proc = StartProcess(worker_command_args, env, job_dir);
   RAY_LOG(DEBUG) << "Started worker process of " << workers_to_start
                  << " worker(s) with pid " << proc.GetId();
   MonitorStartingWorkerProcess(proc, language, worker_type);
@@ -383,7 +413,7 @@ void WorkerPool::MonitorStartingWorkerProcess(const Process &proc,
 }
 
 Process WorkerPool::StartProcess(const std::vector<std::string> &worker_command_args,
-                                 const ProcessEnvironment &env) {
+                                 const ProcessEnvironment &env, const std::string &cwd) {
   if (RAY_LOG_ENABLED(DEBUG)) {
     std::stringstream stream;
     stream << "Starting worker process with command:";
@@ -400,7 +430,7 @@ Process WorkerPool::StartProcess(const std::vector<std::string> &worker_command_
     argv.push_back(arg.c_str());
   }
   argv.push_back(NULL);
-  Process child(argv.data(), io_service_, ec, /*decouple=*/false, env);
+  Process child(argv.data(), io_service_, ec, /*decouple=*/false, env, cwd);
   if (!child.IsValid() || ec) {
     // errorcode 24: Too many files. This is caused by ulimit.
     if (ec.value() == 24) {

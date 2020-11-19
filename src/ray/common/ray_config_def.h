@@ -288,6 +288,12 @@ RAY_CONFIG(uint32_t, agent_restart_interval_ms, 1000)
 /// Wait timeout for dashboard agent register.
 RAY_CONFIG(uint32_t, agent_register_timeout_ms, 30 * 1000)
 
+/// Duration to wait between retries for failed initialization of job env.
+RAY_CONFIG(uint32_t, agent_retry_interval_ms, 1000);
+
+/// Interval to monitor driver alive before registered.
+RAY_CONFIG(uint32_t, agent_monitor_driver_starting_interval_ms, 1000);
+
 /// The maximum number of resource shapes included in the resource
 /// load reported by each raylet.
 RAY_CONFIG(int64_t, max_resource_shapes_per_load_report, 100)
@@ -336,3 +342,7 @@ RAY_CONFIG(std::string, object_spilling_config, "")
 RAY_CONFIG(bool, automatic_object_spilling_enabled, true)
 /// The maximum number of I/O worker that raylet starts.
 RAY_CONFIG(int, max_io_workers, 1)
+/// The string template of python executable path
+RAY_CONFIG(std::string, job_python_path_template, "")
+/// The string template of job dir
+RAY_CONFIG(std::string, job_dir_template, "")
