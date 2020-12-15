@@ -4,7 +4,7 @@ from urllib3.exceptions import MaxRetryError
 import copy
 import logging
 import math
-import os
+from pathlib import Path
 import subprocess
 import threading
 import time
@@ -113,12 +113,12 @@ class StandardAutoscaler:
         # earlier when the config is written since we might be on different
         # platform and the expansion would result in wrong path.
         self.config["file_mounts"] = {
-            remote: os.path.expanduser(local)
+            remote: str(Path(local).expanduser())
             for remote, local in self.config["file_mounts"].items()
         }
 
         for local_path in self.config["file_mounts"].values():
-            assert os.path.exists(local_path)
+            assert Path(local_path).exists()
 
         # List of resource bundles the user is requesting of the cluster.
         self.resource_demand_vector = []

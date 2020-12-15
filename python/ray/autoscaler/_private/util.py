@@ -6,6 +6,7 @@ import jsonschema
 import os
 import threading
 from typing import Any, Dict
+from pathlib import Path
 
 import ray
 import ray._private.services as services
@@ -14,8 +15,8 @@ from ray.autoscaler._private.docker import validate_docker_config
 from ray.autoscaler.tags import NODE_TYPE_LEGACY_WORKER, NODE_TYPE_LEGACY_HEAD
 
 REQUIRED, OPTIONAL = True, False
-RAY_SCHEMA_PATH = os.path.join(
-    os.path.dirname(ray.autoscaler.__file__), "ray-schema.json")
+RAY_SCHEMA_PATH = Path(ray.autoscaler.__file__) \
+    .parent.joinpath("ray-schema.json").__str__()
 
 # Internal kv keys for storing debug status.
 DEBUG_AUTOSCALING_ERROR = "__autoscaling_error"
@@ -159,7 +160,7 @@ def hash_launch_conf(node_conf, auth):
     full_auth = auth.copy()
     for key_type in ["ssh_private_key", "ssh_public_key"]:
         if key_type in auth:
-            with open(os.path.expanduser(auth[key_type])) as key:
+            with open(Path(auth[key_type]).expanduser()) as key:
                 full_auth[key_type] = key.read()
     hasher.update(
         json.dumps([node_conf, full_auth], sort_keys=True).encode("utf-8"))
@@ -195,10 +196,10 @@ def hash_runtime_conf(file_mounts,
                 for chunk in iter(lambda: f.read(2**20), b""):
                     contents_hasher.update(chunk)
 
-        path = os.path.expanduser(path)
-        if allow_non_existing_paths and not os.path.exists(path):
+        path = Path(path).expanduser()
+        if allow_non_existing_paths and not path.exists():
             return
-        if os.path.isdir(path):
+        if path.is_dir():
             dirs = []
             for dirpath, _, filenames in os.walk(path):
                 dirs.append((dirpath, sorted(filenames)))
@@ -206,10 +207,10 @@ def hash_runtime_conf(file_mounts,
                 contents_hasher.update(dirpath.encode("utf-8"))
                 for name in filenames:
                     contents_hasher.update(name.encode("utf-8"))
-                    fpath = os.path.join(dirpath, name)
-                    add_hash_of_file(fpath)
+                    fpath = Path(dirpath).joinpath(name)
+                    add_hash_of_file(str(fpath))
         else:
-            add_hash_of_file(path)
+            add_hash_of_file(str(path))
 
     conf_str = (json.dumps(file_mounts, sort_keys=True).encode("utf-8") +
                 json.dumps(extra_objs, sort_keys=True).encode("utf-8"))

@@ -1,9 +1,9 @@
-import os
 import re
 import subprocess
 import tempfile
 import time
 import sys
+from pathlib import Path
 
 from ray.autoscaler._private.cli_logger import cli_logger, cf
 
@@ -341,9 +341,8 @@ def run_cmd_redirected(cmd,
             stderr_file=sys.stderr,
             use_login_shells=use_login_shells)
     else:
-        tmpfile_path = os.path.join(
-            tempfile.gettempdir(), "ray-up-{}-{}.txt".format(
-                cmd[0], time.time()))
+        tmpfile_path = Path(tempfile.gettempdir()).joinpath(
+            "ray-up-{}-{}.txt".format(cmd[0], time.time()))
         with open(
                 tmpfile_path,
                 mode="w",
