@@ -238,7 +238,8 @@ def find_redis_address_or_die():
 
 def get_address_info_from_redis_helper(redis_address,
                                        node_ip_address,
-                                       redis_password=None):
+                                       redis_password=None,
+                                       node_uuid=None):
     redis_ip_address, redis_port = redis_address.split(":")
     # Get node table from global state accessor.
     global_state = ray.state.GlobalState()
@@ -250,6 +251,12 @@ def get_address_info_from_redis_helper(redis_address,
 
     relevant_client = None
     for client_info in client_table:
+        assert "NodeID" in client_info
+        # ray.state.GlobalState.node_table() renames node_id to NodeID
+        # and converts it to hex.
+        if client_info["NodeID"] == node_uuid:
+            relevant_client = client_info
+            break
         client_node_ip_address = client_info["NodeManagerAddress"]
         if (client_node_ip_address == node_ip_address
                 or (client_node_ip_address == "127.0.0.1"
@@ -265,7 +272,7 @@ def get_address_info_from_redis_helper(redis_address,
             " found raylets at "
             f"{', '.join(c['NodeManagerAddress'] for c in client_table)} but "
             f"none of these match this node's IP {node_ip_address}. Are any of"
-            " these actually a different IP address for the same node?"
+            " these actually a different IP address for the same node? "
             "You might need to provide --node-ip-address to specify the IP "
             "address that the head should use when sending to this node.")
 
@@ -280,12 +287,16 @@ def get_address_info_from_redis(redis_address,
                                 node_ip_address,
                                 num_retries=5,
                                 redis_password=None,
-                                no_warning=False):
+                                no_warning=False,
+                                node_uuid=None):
     counter = 0
     while True:
         try:
             return get_address_info_from_redis_helper(
-                redis_address, node_ip_address, redis_password=redis_password)
+                redis_address,
+                node_ip_address,
+                redis_password=redis_password,
+                node_uuid=node_uuid)
         except Exception:
             if counter == num_retries:
                 raise

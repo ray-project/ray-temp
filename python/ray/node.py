@@ -17,6 +17,7 @@ import ray
 import ray.ray_constants as ray_constants
 import ray._private.services
 import ray.utils
+import ray.worker
 from ray.resource_spec import ResourceSpec
 from ray.utils import try_to_create_directory, try_to_symlink, open_log
 
@@ -172,11 +173,13 @@ class Node:
                     or self._ray_params.node_manager_port is None):
                 # Get the address info of the processes to connect to
                 # from Redis.
+                rayletNodeID = hex(ray.worker.global_worker.current_node_id)
                 address_info = (
                     ray._private.services.get_address_info_from_redis(
                         self.redis_address,
                         self._raylet_ip_address,
-                        redis_password=self.redis_password))
+                        redis_password=self.redis_password,
+                        node_uuid=None))
                 self._plasma_store_socket_name = address_info[
                     "object_store_address"]
                 self._raylet_socket_name = address_info["raylet_socket_name"]
