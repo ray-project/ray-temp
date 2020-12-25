@@ -11,7 +11,10 @@ from ray.rllib.utils.typing import TensorType
 
 ATARI_OBS_SHAPE = (210, 160, 3)
 ATARI_RAM_OBS_SHAPE = (128, )
-VALIDATION_INTERVAL = 100
+
+# Only validate env observations vs the observation space every n times in a
+# Preprocessor.
+OBS_VALIDATION_INTERVAL = 100
 
 logger = logging.getLogger(__name__)
 
@@ -23,7 +26,6 @@ class Preprocessor:
     Attributes:
         shape (List[int]): Shape of the preprocessed output.
     """
-
     @PublicAPI
     def __init__(self, obs_space: gym.Space, options: dict = None):
         legacy_patch_shapes(obs_space)
@@ -54,7 +56,7 @@ class Preprocessor:
 
     def check_shape(self, observation: Any) -> None:
         """Checks the shape of the given observation."""
-        if self._i % VALIDATION_INTERVAL == 0:
+        if self._i % OBS_VALIDATION_INTERVAL == 0:
             if type(observation) is list and isinstance(
                     self._obs_space, gym.spaces.Box):
                 observation = np.array(observation)
@@ -93,7 +95,6 @@ class GenericPixelPreprocessor(Preprocessor):
     Note: for Atari games, use config {"preprocessor_pref": "deepmind"}
     instead for deepmind-style Atari preprocessing.
     """
-
     @override(Preprocessor)
     def _init_shape(self, obs_space: gym.Space, options: dict) -> List[int]:
         self._grayscale = options.get("grayscale")
@@ -171,8 +172,8 @@ class NoPreprocessor(Preprocessor):
     @override(Preprocessor)
     def write(self, observation: TensorType, array: np.ndarray,
               offset: int) -> None:
-        array[offset:offset + self._size] = np.array(
-            observation, copy=False).ravel()
+        array[offset:offset + self._size] = np.array(observation,
+                                                     copy=False).ravel()
 
     @property
     @override(Preprocessor)
@@ -185,7 +186,6 @@ class TupleFlatteningPreprocessor(Preprocessor):
 
     RLlib models will unpack the flattened output before _build_layers_v2().
     """
-
     @override(Preprocessor)
     def _init_shape(self, obs_space: gym.Space, options: dict) -> List[int]:
         assert isinstance(self._obs_space, gym.spaces.Tuple)
@@ -202,7 +202,7 @@ class TupleFlatteningPreprocessor(Preprocessor):
     @override(Preprocessor)
     def transform(self, observation: TensorType) -> np.ndarray:
         self.check_shape(observation)
-        array = np.zeros(self.shape)
+        array = np.zeros(self.shape, dtype=np.float32)
         self.write(observation, array, 0)
         return array
 
@@ -220,7 +220,6 @@ class DictFlatteningPreprocessor(Preprocessor):
 
     RLlib models will unpack the flattened output before _build_layers_v2().
     """
-
     @override(Preprocessor)
     def _init_shape(self, obs_space: gym.Space, options: dict) -> List[int]:
         assert isinstance(self._obs_space, gym.spaces.Dict)
@@ -236,7 +235,7 @@ class DictFlatteningPreprocessor(Preprocessor):
     @override(Preprocessor)
     def transform(self, observation: TensorType) -> np.ndarray:
         self.check_shape(observation)
-        array = np.zeros(self.shape)
+        array = np.zeros(self.shape, dtype=np.float32)
         self.write(observation, array, 0)
         return array
 
@@ -254,7 +253,6 @@ class DictFlatteningPreprocessor(Preprocessor):
 
 class RepeatedValuesPreprocessor(Preprocessor):
     """Pads and batches the variable-length list value."""
-
     @override(Preprocessor)
     def _init_shape(self, obs_space: gym.Space, options: dict) -> List[int]:
         assert isinstance(self._obs_space, Repeated)
