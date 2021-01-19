@@ -301,6 +301,11 @@ def test_metrics_override_shouldnt_warn(ray_start_regular, log_pubsub):
             assert "Attempt to register measure" not in line
 
 
+def test_custom_metrics_without_ray_init():
+    with pytest.raises(AssertionError):
+        Count("c", description="", tag_keys=("backend", ))
+
+
 if __name__ == "__main__":
     import sys
     # Test suite is timing out. Disable on windows for now.
