@@ -9,6 +9,7 @@ from ray.exceptions import (
     RayError,
     PlasmaObjectNotAvailable,
     RayTaskError,
+    RayPlacementGroupError,
     RayActorError,
     TaskCancelledError,
     WorkerCrashedError,
@@ -221,6 +222,8 @@ class SerializationContext:
                 return TaskCancelledError()
             elif error_type == ErrorType.Value("OBJECT_UNRECONSTRUCTABLE"):
                 return ObjectLostError(ray.ObjectRef(object_ref.binary()))
+            elif error_type == ErrorType.Value("PLACEMENT_GROUP_ERROR"):
+                return RayPlacementGroupError()
             else:
                 assert error_type != ErrorType.Value("OBJECT_IN_PLASMA"), \
                     "Tried to get object that has been promoted to plasma."
