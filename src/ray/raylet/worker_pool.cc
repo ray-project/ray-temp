@@ -516,12 +516,27 @@ Status WorkerPool::RegisterDriver(const std::shared_ptr<WorkerInterface> &driver
 
 std::shared_ptr<WorkerInterface> WorkerPool::GetRegisteredWorker(
     const std::shared_ptr<ClientConnection> &connection) const {
+  // Get workers if exists.
   for (const auto &entry : states_by_lang_) {
     auto worker = GetWorker(entry.second.registered_workers, connection);
     if (worker != nullptr) {
       return worker;
     }
+
+    // Get IO workers if exists.
+    auto &restore_worker_state = entry.second.restore_io_worker_state;
+    worker = GetWorker(restore_worker_state.registered_io_workers, connection);
+    if (worker != nullptr) {
+      return worker;
+    }
+    auto &spill_worker_state = entry.second.spill_io_worker_state;
+    worker = GetWorker(spill_worker_state.registered_io_workers, connection);
+    if (worker != nullptr) {
+      return worker;
+    }
   }
+
+  // If no worker found, return a nullptr.
   return nullptr;
 }
 
@@ -562,11 +577,11 @@ void WorkerPool::PushIOWorkerInternal(const std::shared_ptr<WorkerInterface> &wo
 
   RAY_LOG(DEBUG) << "Pushing an IO worker to the worker pool.";
   if (io_worker_state.pending_io_tasks.empty()) {
-    io_worker_state.idle_io_workers.push(worker);
+    io_worker_state.idle_io_workers.emplace(worker);
   } else {
     auto callback = io_worker_state.pending_io_tasks.front();
     io_worker_state.pending_io_tasks.pop();
-    callback(worker);
+    io_service_->post([callback, worker]() { callback(worker); });
   }
 }
 
@@ -582,9 +597,10 @@ void WorkerPool::PopIOWorkerInternal(
     io_worker_state.pending_io_tasks.push(callback);
     TryStartIOWorkers(Language::PYTHON, worker_type);
   } else {
-    auto io_worker = io_worker_state.idle_io_workers.front();
-    io_worker_state.idle_io_workers.pop();
-    callback(io_worker);
+    const auto it = io_worker_state.idle_io_workers.begin();
+    auto io_worker = *it;
+    io_worker_state.idle_io_workers.erase(it);
+    io_service_->post([callback, io_worker]() { callback(io_worker); });
   }
 }
 
@@ -609,6 +625,19 @@ void WorkerPool::PopDeleteWorker(
   } else {
     PopRestoreWorker(callback);
   }
+}
+
+bool WorkerPool::DisconnectIOWorker(const std::shared_ptr<WorkerInterface> &worker) {
+  const auto io_worker_type = worker->GetWorkerType();
+  RAY_CHECK(IsIOWorkerType(io_worker_type));
+
+  // Remove worker information from metdata.
+  auto &state = GetStateForLanguage(worker->GetLanguage());
+  auto &io_worker_state = GetIOWorkerStateFromWorkerType(io_worker_type, state);
+  RAY_CHECK(RemoveWorker(io_worker_state.registered_io_workers, worker));
+
+  MarkPortAsFree(worker->AssignedPort());
+  return RemoveWorker(io_worker_state.idle_io_workers, worker);
 }
 
 void WorkerPool::PushWorker(const std::shared_ptr<WorkerInterface> &worker) {
@@ -652,7 +681,7 @@ void WorkerPool::TryKillingIdleWorkers() {
   int64_t now = current_time_ms();
   size_t running_size = 0;
   for (const auto &worker : GetAllRegisteredWorkers()) {
-    if (!worker->IsDead()) {
+    if (!worker->IsDead() && !IsIOWorkerType(worker->GetWorkerType())) {
       running_size++;
     }
   }
@@ -840,7 +869,7 @@ void WorkerPool::PrestartWorkers(const TaskSpecification &task_spec,
   // The number of workers total regardless of suitability for this task.
   int num_workers_total = 0;
   for (const auto &worker : GetAllRegisteredWorkers()) {
-    if (!worker->IsDead()) {
+    if (!worker->IsDead() && !IsIOWorkerType(worker->GetWorkerType())) {
       num_workers_total++;
     }
   }
@@ -858,6 +887,10 @@ void WorkerPool::PrestartWorkers(const TaskSpecification &task_spec,
 }
 
 bool WorkerPool::DisconnectWorker(const std::shared_ptr<WorkerInterface> &worker) {
+  if (IsIOWorkerType(worker->GetWorkerType())) {
+    return DisconnectIOWorker(worker);
+  }
+
   auto &state = GetStateForLanguage(worker->GetLanguage());
   RAY_CHECK(RemoveWorker(state.registered_workers, worker));
   for (auto it = idle_of_all_languages_.begin(); it != idle_of_all_languages_.end();
@@ -1047,7 +1080,7 @@ std::string WorkerPool::DebugString() const {
 }
 
 WorkerPool::IOWorkerState &WorkerPool::GetIOWorkerStateFromWorkerType(
-    const rpc::WorkerType &worker_type, WorkerPool::State &state) const {
+    const rpc::WorkerType worker_type, WorkerPool::State &state) {
   RAY_CHECK(worker_type != rpc::WorkerType::WORKER)
       << worker_type << " type cannot be used to retrieve io_worker_state";
   if (worker_type == rpc::WorkerType::SPILL_WORKER) {

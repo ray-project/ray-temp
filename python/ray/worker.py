@@ -114,6 +114,9 @@ class Worker:
         # breakpoint ID.
         self.debugger_get_breakpoint = b""
         self._load_code_from_local = False
+        self._core_worker = None
+        self.tracebacks = []
+        self.core_worker_created = False
 
     @property
     def connected(self):
@@ -163,6 +166,22 @@ class Worker:
         assert isinstance(self._session_index, int)
         assert isinstance(self.current_job_id, ray.JobID)
         return self._session_index, self.current_job_id
+
+    @property
+    def core_worker(self):
+        assert self._core_worker is not None, (
+            f"tracebacks: {self.tracebacks}\n"
+            f"is_core_worker_created? {self.core_worker_created}")
+        if not self.core_worker_created:
+            self.core_worker_created = True
+        return self._core_worker
+
+    def remove_core_worker(self):
+        if self._core_worker is not None:
+            for line in traceback.format_stack():
+                self.tracebacks.insert(0, line.strip())
+            del self._core_worker
+            self._core_worker = None
 
     def mark_actor_init_failed(self, error):
         """Called to mark this actor as failed during initialization."""
@@ -809,8 +828,9 @@ def shutdown(_exiting_interpreter=False):
     # We need to destruct the core worker here because after this function,
     # we will tear down any processes spawned by ray.init() and the background
     # IO thread in the core worker doesn't currently handle that gracefully.
-    if hasattr(global_worker, "core_worker"):
-        del global_worker.core_worker
+    global_worker.remove_core_worker()
+    # if hasattr(global_worker, "core_worker"):
+    #     del global_worker.core_worker
 
     # Disconnect global state from GCS.
     ray.state.state.disconnect()
@@ -1238,7 +1258,7 @@ def connect(node,
     if job_config is None:
         job_config = ray.job_config.JobConfig()
     serialized_job_config = job_config.serialize()
-    worker.core_worker = ray._raylet.CoreWorker(
+    worker._core_worker = ray._raylet.CoreWorker(
         mode, node.plasma_store_socket_name, node.raylet_socket_name, job_id,
         gcs_options, node.get_logs_dir_path(), node.node_ip_address,
         node.node_manager_port, node.raylet_ip_address, (mode == LOCAL_MODE),

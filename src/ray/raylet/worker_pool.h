@@ -166,7 +166,7 @@ class WorkerPool : public WorkerPoolInterface, public IOWorkerPoolInterface {
                         const rpc::JobConfig &job_config,
                         std::function<void(Status, int)> send_reply_callback);
 
-  /// Get the client connection's registered worker.
+  /// Get the client connection's registered worker (including I/O workers).
   ///
   /// \param The client connection owned by a registered worker.
   /// \return The Worker that owns the given client connection. Returns nullptr
@@ -271,6 +271,7 @@ class WorkerPool : public WorkerPoolInterface, public IOWorkerPoolInterface {
       const JobID &job_id) const;
 
   /// Get all the registered workers.
+  /// NOTE: Currently, this doesn't return IO workers.
   ///
   /// \param filter_dead_workers whether or not if this method will filter dead workers
   /// that are still registered. \return A list containing all the workers.
@@ -339,7 +340,7 @@ class WorkerPool : public WorkerPoolInterface, public IOWorkerPoolInterface {
 
   struct IOWorkerState {
     /// The pool of idle I/O workers.
-    std::queue<std::shared_ptr<WorkerInterface>> idle_io_workers;
+    std::unordered_set<std::shared_ptr<WorkerInterface>> idle_io_workers;
     /// The queue of pending I/O tasks.
     std::queue<std::function<void(std::shared_ptr<WorkerInterface>)>> pending_io_tasks;
     /// All I/O workers that have registered and are still connected, including both
@@ -442,8 +443,8 @@ class WorkerPool : public WorkerPoolInterface, public IOWorkerPoolInterface {
   ///
   /// \param worker_type IO Worker Type.
   /// \param state Worker pool internal state.
-  IOWorkerState &GetIOWorkerStateFromWorkerType(const rpc::WorkerType &worker_type,
-                                                State &state) const;
+  IOWorkerState &GetIOWorkerStateFromWorkerType(const rpc::WorkerType worker_type,
+                                                State &state);
 
   /// Push IOWorker (e.g., spill worker and restore worker) based on the given
   /// worker_type.
@@ -458,6 +459,10 @@ class WorkerPool : public WorkerPoolInterface, public IOWorkerPoolInterface {
   /// Return true if the given worker type is IO worker type. Currently, there are 2 IO
   /// worker types (SPILL_WORKER and RESTORE_WORKER).
   bool IsIOWorkerType(const rpc::WorkerType &worker_type);
+
+  /// Disconnect a given IO worker.
+  /// \param worker A worker to disconnect.
+  bool DisconnectIOWorker(const std::shared_ptr<WorkerInterface> &worker);
 
   /// For Process class for managing subprocesses (e.g. reaping zombies).
   boost::asio::io_service *io_service_;
