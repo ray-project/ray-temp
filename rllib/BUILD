@@ -271,6 +271,16 @@ py_test(
 
 # PPO
 py_test(
+    name = "run_regression_tests_cartpole_ppo_jax",
+    main = "tests/run_regression_tests.py",
+    tags = ["learning_tests_torch", "learning_tests_cartpole"],
+    size = "medium",
+    srcs = ["tests/run_regression_tests.py"],
+    data = ["tuned_examples/ppo/cartpole-ppo.yaml"],
+    args = ["--yaml-dir=tuned_examples/ppo", "--framework=jax"]
+)
+
+py_test(
     name = "run_regression_tests_cartpole_ppo_tf",
     main = "tests/run_regression_tests.py",
     tags = ["learning_tests_tf", "learning_tests_cartpole"],
@@ -1117,6 +1127,13 @@ py_test(
     tags = ["models"],
     size = "medium",
     srcs = ["models/tests/test_distributions.py"]
+)
+
+py_test(
+    name = "test_jax_models",
+    tags = ["models"],
+    size = "small",
+    srcs = ["models/tests/test_jax_models.py"]
 )
 
 py_test(

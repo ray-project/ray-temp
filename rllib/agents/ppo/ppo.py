@@ -140,7 +140,7 @@ def validate_config(config: TrainerConfigDict) -> None:
             "trajectory). Consider setting batch_mode=complete_episodes.")
 
     # Multi-gpu not supported for PyTorch and tf-eager.
-    if config["framework"] in ["tf2", "tfe", "torch"]:
+    if config["framework"] != "tf":
         config["simple_optimizer"] = True
     # Performance warning, if "simple" optimizer used with (static-graph) tf.
     elif config["simple_optimizer"]:
@@ -168,6 +168,9 @@ def get_policy_class(config: TrainerConfigDict) -> Optional[Type[Policy]]:
     if config["framework"] == "torch":
         from ray.rllib.agents.ppo.ppo_torch_policy import PPOTorchPolicy
         return PPOTorchPolicy
+    elif config["framework"] == "jax":
+        from ray.rllib.agents.ppo.ppo_jax_policy import PPOJAXPolicy
+        return PPOJAXPolicy
 
 
 class UpdateKL:
@@ -187,9 +190,10 @@ class UpdateKL:
             assert "kl" not in fetches, (
                 "kl should be nested under policy id key", fetches)
             if pi_id in fetches:
-                assert "kl" in fetches[pi_id], (fetches, pi_id)
+                #assert "kl" in fetches[pi_id], (fetches, pi_id)
                 # Make the actual `Policy.update_kl()` call.
-                pi.update_kl(fetches[pi_id]["kl"])
+                if "kl" in fetches[pi_id]:#TODO
+                    pi.update_kl(fetches[pi_id]["kl"])
             else:
                 logger.warning("No data for {}, not updating kl".format(pi_id))
 

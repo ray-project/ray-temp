@@ -46,6 +46,12 @@ class MyCallbacks(DefaultCallbacks):
                 assert p["lr"] == policy.cur_lr, "LR scheduling error!"
 
     @staticmethod
+    def _check_lr_jax(policy, policy_id):
+        for j, opt in enumerate(policy._optimizers):
+            assert opt.optimizer_def.hyper_params.learning_rate == \
+                   policy.cur_lr, "LR scheduling error!"
+
+    @staticmethod
     def _check_lr_tf(policy, policy_id):
         lr = policy.cur_lr
         sess = policy.get_session()
@@ -58,14 +64,16 @@ class MyCallbacks(DefaultCallbacks):
         assert lr == optim_lr, "LR scheduling error!"
 
     def on_train_result(self, *, trainer, result: dict, **kwargs):
-        trainer.workers.foreach_policy(self._check_lr_torch if trainer.config[
-            "framework"] == "torch" else self._check_lr_tf)
+        fw = trainer.config["framework"]
+        trainer.workers.foreach_policy(
+            self._check_lr_tf if fw.startswith("tf") else self._check_lr_torch
+            if fw == "torch" else self._check_lr_jax)
 
 
 class TestPPO(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        ray.init()
+        ray.init(local_mode=True)#TODO
 
     @classmethod
     def tearDownClass(cls):
@@ -83,19 +91,26 @@ class TestPPO(unittest.TestCase):
         config["model"]["lstm_cell_size"] = 10
         config["model"]["max_seq_len"] = 20
         config["train_batch_size"] = 128
-        num_iterations = 2
+        num_iterations = 1#TODO:2
 
-        for _ in framework_iterator(config):
-            for env in ["CartPole-v0", "MsPacmanNoFrameskip-v4"]:
+        for fw in framework_iterator(
+                config, frameworks=("jax")):#TODO, "tf2", "tf", "torch")):
+            envs = ["CartPole-v0"]
+            #if fw != "jax":
+            #    envs.append("MsPacmanNoFrameskip-v4")
+            for env in envs:
                 print("Env={}".format(env))
-                for lstm in [True, False]:
+                lstms = [False]
+                #if fw != "jax":
+                #    lstms.append(True)
+                for lstm in lstms:
                     print("LSTM={}".format(lstm))
                     config["model"]["use_lstm"] = lstm
                     config["model"]["lstm_use_prev_action"] = lstm
                     config["model"]["lstm_use_prev_reward"] = lstm
                     trainer = ppo.PPOTrainer(config=config, env=env)
                     for i in range(num_iterations):
-                        trainer.train()
+                        print(trainer.train())
                     check_compute_single_action(
                         trainer,
                         include_prev_action_reward=True,
