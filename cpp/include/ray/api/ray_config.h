@@ -2,6 +2,7 @@
 #pragma once
 #include <memory>
 #include <string>
+
 #include "ray/core.h"
 
 namespace ray {
@@ -14,7 +15,7 @@ class RayConfig {
  public:
   WorkerType worker_type = WorkerType::DRIVER;
 
-  RunMode run_mode = RunMode::SINGLE_PROCESS;
+  RunMode run_mode = RunMode::CLUSTER;
 
   std::string redis_ip;
 
@@ -32,7 +33,16 @@ class RayConfig {
 
   std::string session_dir = "";
 
+  int min_workers = 1;
+
+  int max_workers = 0;
+
+  int num_workers = min_workers;
+
   static std::shared_ptr<RayConfig> GetInstance();
+
+  static std::shared_ptr<RayConfig> GetInstance(std::string address, bool local_mode,
+                                                int min_workers, int max_workers);
 
  private:
   static std::shared_ptr<RayConfig> config_;
