@@ -771,6 +771,42 @@ class NodeManager : public rpc::NodeManagerServiceHandler,
   void DisconnectClient(
       const std::shared_ptr<ClientConnection> &client,
       rpc::WorkerExitType disconnect_type = rpc::WorkerExitType::SYSTEM_ERROR_EXIT);
+
+  /// If the resource used by normal task changes, update the resource change information
+  /// to `resources_data`.
+  ///
+  /// \param resources_data Output parameter.
+  /// \param cluster_resource_scheduler Cluster resource scheduler.
+  /// \param leased_workers Map of workers leased out to direct call clients.
+  /// \param last_report_normal_task_resources Output parameter.
+  void FillNormalTaskResourceUsage(
+      const std::shared_ptr<rpc::ResourcesData> &resources_data,
+      const std::shared_ptr<ClusterResourceSchedulerInterface>
+          &cluster_resource_scheduler,
+      const std::unordered_map<WorkerID, std::shared_ptr<WorkerInterface>>
+          &leased_workers,
+      std::shared_ptr<std::unordered_map<std::string, double>>
+          &last_report_normal_task_resources);
+
+  /// Get the resources used by normal task.
+  ///
+  /// \return The resources used by normal task.
+  std::shared_ptr<std::unordered_map<std::string, double>> GetResourcesUsedByNormalTask(
+      const std::shared_ptr<ClusterResourceSchedulerInterface>
+          &cluster_resource_scheduler,
+      const std::unordered_map<WorkerID, std::shared_ptr<WorkerInterface>>
+          &leased_workers) const;
+
+  /// Get the change of resources used by normal task.
+  ///
+  /// \param old_resources Resources previously used by normal task.
+  /// \param new_resources Resources currently used by normal task.
+  /// \return The change of resources used by normal task.
+  std::shared_ptr<std::unordered_map<std::string, double>> GetNormalTaskResourcesChanges(
+      std::unordered_map<std::string, double> old_resources,
+      const std::shared_ptr<std::unordered_map<std::string, double>> &new_resources)
+      const;
+
   /// The helper to dump the debug state of the cluster task manater.
   std::string DebugStr() const override;
 
@@ -935,6 +971,10 @@ class NodeManager : public rpc::NodeManagerServiceHandler,
 
   /// Managers all bundle-related operations.
   std::shared_ptr<PlacementGroupResourceManager> placement_group_resource_manager_;
+
+  /// Cached resources, used to compare with newest one in light heartbeat mode.
+  std::shared_ptr<std::unordered_map<std::string, double>>
+      last_report_normal_task_resources_;
 };
 
 }  // namespace raylet

@@ -15,6 +15,7 @@
 #include "ray/raylet/node_manager.h"
 
 #include <cctype>
+#include <cmath>
 #include <fstream>
 #include <memory>
 
@@ -456,12 +457,14 @@ void NodeManager::Heartbeat() {
 void NodeManager::ReportResourceUsage() {
   auto resources_data = std::make_shared<rpc::ResourcesData>();
   resources_data->set_node_id(self_node_id_.Binary());
-  // Update local chche from gcs remote cache, this is needed when gcs restart.
+  // Update local cache from gcs remote cache, this is needed when gcs restart.
   // We should always keep the cache view consistent.
   cluster_resource_scheduler_->UpdateLastResourceUsage(
       gcs_client_->NodeResources().GetLastResourceUsage());
   cluster_resource_scheduler_->FillResourceUsage(resources_data);
   cluster_task_manager_->FillResourceUsage(resources_data);
+  FillNormalTaskResourceUsage(resources_data, cluster_resource_scheduler_,
+                              leased_workers_, last_report_normal_task_resources_);
 
   // Set the global gc bit on the outgoing heartbeat message.
   if (should_global_gc_) {
@@ -481,7 +484,8 @@ void NodeManager::ReportResourceUsage() {
 
   if (resources_data->resources_total_size() > 0 ||
       resources_data->resources_available_changed() ||
-      resources_data->resource_load_changed() || resources_data->should_global_gc()) {
+      resources_data->resource_load_changed() || resources_data->should_global_gc() ||
+      !resources_data->normal_task_resources_changes().empty()) {
     RAY_CHECK_OK(gcs_client_->NodeResources().AsyncReportResourceUsage(resources_data,
                                                                        /*done*/ nullptr));
   }
@@ -2782,6 +2786,113 @@ void NodeManager::SendSpilledObjectRestorationRequestToRemoteNode(
                            << status.ToString();
         }
       });
+}
+
+void NodeManager::FillNormalTaskResourceUsage(
+    const std::shared_ptr<rpc::ResourcesData> &resources_data,
+    const std::shared_ptr<ClusterResourceSchedulerInterface> &cluster_resource_scheduler,
+    const std::unordered_map<WorkerID, std::shared_ptr<WorkerInterface>> &leased_workers,
+    std::shared_ptr<std::unordered_map<std::string, double>>
+        &last_report_normal_task_resources) {
+  if (!RayConfig::instance().new_scheduler_enabled()) {
+    RAY_LOG(WARNING) << "Filling normal task resource usage is not supported when "
+                        "new scheduler is disabled.";
+    return;
+  }
+
+  auto new_resources =
+      GetResourcesUsedByNormalTask(cluster_resource_scheduler, leased_workers);
+  if (new_resources) {
+    std::shared_ptr<std::unordered_map<std::string, double>> resources_changes;
+    if (nullptr == last_report_normal_task_resources) {
+      resources_changes = new_resources;
+    } else {
+      resources_changes = GetNormalTaskResourcesChanges(
+          *last_report_normal_task_resources, new_resources);
+    }
+
+    if (!resources_changes->empty()) {
+      for (const auto &iter : *resources_changes) {
+        (*resources_data->mutable_normal_task_resources_changes())[iter.first] =
+            iter.second;
+      }
+      last_report_normal_task_resources = new_resources;
+    }
+  }
+}
+
+std::shared_ptr<std::unordered_map<std::string, double>>
+NodeManager::GetResourcesUsedByNormalTask(
+    const std::shared_ptr<ClusterResourceSchedulerInterface> &cluster_resource_scheduler,
+    const std::unordered_map<WorkerID, std::shared_ptr<WorkerInterface>> &leased_workers)
+    const {
+  auto resources = std::make_shared<std::unordered_map<std::string, double>>();
+  auto scheduler =
+      std::dynamic_pointer_cast<ClusterResourceScheduler>(cluster_resource_scheduler);
+  for (const auto &iter : leased_workers) {
+    const auto &leased_worker = iter.second;
+    const auto &allocated_instances = leased_worker->GetAllocatedInstances();
+    if (leased_worker->GetActorId().IsNil() && leased_worker->IsBlocked() &&
+        allocated_instances != nullptr) {
+      auto plus_func = [](FixedPoint left, FixedPoint right) {
+        return (left + right).Double();
+      };
+
+      const auto &predefined_resources = allocated_instances->predefined_resources;
+      for (size_t res_idx = 0; res_idx < predefined_resources.size(); res_idx++) {
+        const auto &resource = predefined_resources[res_idx];
+        const auto &resource_name = scheduler->GetResourceNameFromIndex(res_idx);
+        double resource_value =
+            std::accumulate(resource.begin(), resource.end(), 0, plus_func);
+        // Filter the resources used by normal task.
+        if (resource_value > 0) {
+          (*resources)[resource_name] += resource_value;
+        }
+      }
+
+      auto custom_resources = allocated_instances->custom_resources;
+      for (auto it = custom_resources.begin(); it != custom_resources.end(); ++it) {
+        const auto &resource = it->second;
+        const auto &resource_name = scheduler->GetResourceNameFromIndex(it->first);
+        (*resources)[resource_name] +=
+            std::accumulate(resource.begin(), resource.end(), 0, plus_func);
+        double resource_value =
+            std::accumulate(resource.begin(), resource.end(), 0, plus_func);
+        // Filter the resources used by normal task.
+        if (resource_value > 0) {
+          (*resources)[resource_name] += resource_value;
+        }
+      }
+    }
+  }
+  return resources;
+}
+
+std::shared_ptr<std::unordered_map<std::string, double>>
+NodeManager::GetNormalTaskResourcesChanges(
+    std::unordered_map<std::string, double> old_resources,
+    const std::shared_ptr<std::unordered_map<std::string, double>> &new_resources) const {
+  auto resources_changes = std::make_shared<std::unordered_map<std::string, double>>();
+  for (const auto &resource : *new_resources) {
+    const auto &iter = old_resources.find(resource.first);
+    if (iter == old_resources.end()) {
+      // Normal task uses a new resource.
+      (*resources_changes)[resource.first] = resource.second;
+    } else {
+      old_resources.erase(iter);
+      // Get the change of resource used by normal task.
+      if (fabs(resource.second - iter->second) > 1e-6) {
+        (*resources_changes)[resource.first] = resource.second - iter->second;
+      }
+    }
+  }
+
+  // If a normal task uses a resource and no other task uses this resource after the task
+  // is completed, we need to get the resource information from the `old_resources`.
+  for (const auto &resource : old_resources) {
+    (*resources_changes)[resource.first] = -resource.second;
+  }
+  return resources_changes;
 }
 
 }  // namespace raylet

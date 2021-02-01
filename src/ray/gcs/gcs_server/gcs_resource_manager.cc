@@ -147,10 +147,10 @@ void GcsResourceManager::HandleGetAllAvailableResources(
     const rpc::GetAllAvailableResourcesRequest &request,
     rpc::GetAllAvailableResourcesReply *reply,
     rpc::SendReplyCallback send_reply_callback) {
-  for (const auto &iter : cluster_scheduling_resources_) {
+  for (const auto &iter : cluster_available_resources_) {
     rpc::AvailableResources resource;
     resource.set_node_id(iter.first.Binary());
-    for (const auto &res : iter.second.GetAvailableResources().GetResourceAmountMap()) {
+    for (const auto &res : iter.second.GetResourceAmountMap()) {
       (*resource.mutable_resources_available())[res.first] = res.second.ToDouble();
     }
     reply->add_resources_list()->CopyFrom(resource);
@@ -172,10 +172,18 @@ void GcsResourceManager::HandleReportResourceUsage(
   if (node_resource_usages_.count(node_id) == 0 ||
       resources_data->resources_available_changed()) {
     const auto &resource_changed = MapFromProtobuf(resources_data->resources_available());
-    SetAvailableResources(node_id, ResourceSet(resource_changed));
+    cluster_available_resources_[node_id] = ResourceSet(resource_changed);
   }
 
   UpdateNodeResourceUsage(node_id, request);
+
+  const auto &resource_changes =
+      MapFromProtobuf(resources_data->normal_task_resources_changes());
+  if (!resource_changes.empty()) {
+    // TODO(ffbin): We need to make sure the addition of task usage + actor usage are
+    // equal to the total resources. I will implement it in the next pr.
+    UpdateNormalTaskResourcesChanges(node_id, resource_changes);
+  }
 
   if (resources_data->should_global_gc() || resources_data->resources_total_size() > 0 ||
       resources_data->resources_available_changed() ||
@@ -284,11 +292,6 @@ const absl::flat_hash_map<NodeID, SchedulingResources>
   return cluster_scheduling_resources_;
 }
 
-void GcsResourceManager::SetAvailableResources(const NodeID &node_id,
-                                               const ResourceSet &resources) {
-  cluster_scheduling_resources_[node_id].SetAvailableResources(ResourceSet(resources));
-}
-
 void GcsResourceManager::UpdateResourceCapacity(
     const NodeID &node_id,
     const std::unordered_map<std::string, double> &changed_resources) {
@@ -325,6 +328,7 @@ void GcsResourceManager::OnNodeDead(const NodeID &node_id) {
   resources_buffer_.erase(node_id);
   node_resource_usages_.erase(node_id);
   cluster_scheduling_resources_.erase(node_id);
+  cluster_available_resources_.erase(node_id);
 }
 
 bool GcsResourceManager::AcquireResources(const NodeID &node_id,
@@ -383,6 +387,42 @@ void GcsResourceManager::SendBatchedResourceUsage() {
 void GcsResourceManager::UpdatePlacementGroupLoad(
     const std::shared_ptr<rpc::PlacementGroupLoad> placement_group_load) {
   placement_group_load_ = absl::make_optional(placement_group_load);
+}
+
+void GcsResourceManager::UpdateNormalTaskResourcesChanges(
+    const NodeID &node_id,
+    const std::unordered_map<std::string, double> &resources_changes) {
+  auto &scheduling_resources = cluster_scheduling_resources_[node_id];
+  const auto &total_resources = scheduling_resources.GetTotalResources();
+
+  std::unordered_map<std::string, double> acquire_resources;
+  std::unordered_map<std::string, double> release_resources;
+  for (const auto &iter : resources_changes) {
+    // TODO(ffbin): If placement group is used in normal task, GCS cannot process the
+    // resource information reported by it at present, I will implement it in the next pr.
+    if (total_resources.GetResource(iter.first) == 0) {
+      continue;
+    }
+
+    if (iter.second < 0) {
+      // After the task is finished, resources will be released, and the change of
+      // resources is negative. `ResourceSet` requires the resource to be a positive
+      // number, so we need to negate it.
+      release_resources[iter.first] = -iter.second;
+    } else {
+      // When task runs, it will apply for resources, and the change of resources is
+      // positive.
+      acquire_resources[iter.first] = iter.second;
+    }
+  }
+
+  if (!release_resources.empty()) {
+    scheduling_resources.Release(ResourceSet(release_resources));
+  }
+
+  if (!acquire_resources.empty()) {
+    scheduling_resources.Acquire(ResourceSet(acquire_resources));
+  }
 }
 
 std::string GcsResourceManager::DebugString() const {
