@@ -153,7 +153,6 @@ class CoreWorkerTest : public ::testing::Test {
       options.node_manager_port = node_manager_port;
       options.raylet_ip_address = "127.0.0.1";
       options.driver_name = "core_worker_test";
-      options.ref_counting_enabled = true;
       options.num_workers = 1;
       options.metrics_agent_port = -1;
       CoreWorkerProcess::Initialize(options);
@@ -650,8 +649,8 @@ TEST_F(ZeroNodeTest, TestActorHandle) {
 }
 
 TEST_F(SingleNodeTest, TestMemoryStoreProvider) {
-  std::shared_ptr<CoreWorkerMemoryStore> provider_ptr =
-      std::make_shared<CoreWorkerMemoryStore>();
+  auto ref_counter = std::make_shared<ReferenceCounter>(rpc::Address());
+  auto provider_ptr = std::make_shared<CoreWorkerMemoryStore>(nullptr, ref_counter);
 
   auto &provider = *provider_ptr;
 
@@ -669,6 +668,7 @@ TEST_F(SingleNodeTest, TestMemoryStoreProvider) {
   std::vector<ObjectID> ids(buffers.size());
   for (size_t i = 0; i < ids.size(); i++) {
     ids[i] = ObjectID::FromRandom();
+    ref_counter->AddOwnedObject(ids[i], {}, {}, "", 0, false);
     RAY_CHECK(provider.Put(buffers[i], ids[i]));
   }
 
@@ -726,14 +726,16 @@ TEST_F(SingleNodeTest, TestMemoryStoreProvider) {
   std::vector<ObjectID> unready_ids(buffers.size());
   for (size_t i = 0; i < unready_ids.size(); i++) {
     ready_ids[i] = ObjectID::FromRandom();
+    ref_counter->AddOwnedObject(ready_ids[i], {}, {}, "", 0, false);
     RAY_CHECK(provider.Put(buffers[i], ready_ids[i]));
     unready_ids[i] = ObjectID::FromRandom();
   }
 
-  auto thread_func = [&unready_ids, &provider, &buffers]() {
+  auto thread_func = [ref_counter, &unready_ids, &provider, &buffers]() {
     std::this_thread::sleep_for(std::chrono::milliseconds(1000));
 
     for (size_t i = 0; i < unready_ids.size(); i++) {
+      ref_counter->AddOwnedObject(unready_ids[i], {}, {}, "", 0, false);
       RAY_CHECK(provider.Put(buffers[i], unready_ids[i]));
     }
   };
