@@ -12,7 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-
 #include "local_mode_task_submitter.h"
 
 #include <ray/api/ray_exception.h>
