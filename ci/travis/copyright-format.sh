@@ -25,6 +25,8 @@ LINES_NUM=$(echo "$COPYRIGHT" | wc -l)
 
 RUN_TYPE="diff"
 
+FILE_LIST_TMP_FILE=".cr_file_list_tmp"
+
 TMP_FILE=".cr_tmp"
 
 CPP_FILES=(cpp src)
@@ -56,9 +58,9 @@ while [ $# -gt 0 ]; do
 done
 
 for directory in "${CPP_FILES[@]}"; do
-
-    for f in $(find "$directory" -name '*.cc' -or -name '*.h'); do 
-
+    find "$directory" ! -name "$(printf "*\n*")" -name '*.cc' -or -name '*.h' > "$FILE_LIST_TMP_FILE"
+    while IFS=$'\n' read -r f
+    do
         head_content=$(sed -n "1,${LINES_NUM}p" "$f")
         if [[ "$head_content" != "$COPYRIGHT" ]];then
             ERROR_FILES+=("$f")
@@ -68,10 +70,11 @@ for directory in "${CPP_FILES[@]}"; do
                 mv $TMP_FILE "$f"
             fi
         fi
-    done
+    done < $"$FILE_LIST_TMP_FILE"
+    rm -f "$FILE_LIST_TMP_FILE"
 done
 
-if [[ ${#ERROR_FILES[*]} > 0 ]];then
+if [[ ${#ERROR_FILES[*]} -gt 0 ]];then
     if [[ "$RUN_TYPE" == "fix" ]];then
         echo 'Copyright has been added to the files below:'
         printf '%s\n' "${ERROR_FILES[@]}"
