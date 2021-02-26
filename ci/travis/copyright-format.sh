@@ -65,7 +65,9 @@ for directory in "${CPP_FILES[@]}"; do
         if [[ "$head_content" != "$COPYRIGHT" ]];then
             ERROR_FILES+=("$f")
             if [[ "$RUN_TYPE" == "fix" ]];then
-                sed -i '1s/^/\n/' "$f"
+                echo "$f"
+                sed '1s/^/\n/' "$f" > $TMP_FILE
+                mv $TMP_FILE "$f"
                 cat "$COPYRIGHT_FILE" "$f" > $TMP_FILE
                 mv $TMP_FILE "$f"
             fi
