@@ -19,9 +19,9 @@ pushd "$ROOT_DIR"/../..
 
 COPYRIGHT_FILE="$ROOT_DIR"/copyright.txt
 
-COPYRIGHT=`cat $COPYRIGHT_FILE`
+COPYRIGHT=$(cat "$COPYRIGHT_FILE")
 
-LINES_NUM=`echo "$COPYRIGHT" | wc -l`
+LINES_NUM=$(echo "$COPYRIGHT" | wc -l)
 
 RUN_TYPE="diff"
 
@@ -55,17 +55,17 @@ while [ $# -gt 0 ]; do
   shift
 done
 
-for directory in ${CPP_FILES[@]}; do
+for directory in "${CPP_FILES[@]}"; do
 
-    for f in $(find $directory -name '*.cc' -or -name '*.h'); do 
+    for f in $(find "$directory" -name '*.cc' -or -name '*.h'); do 
 
-        head_content=`sed -n "1,${LINES_NUM}p" $f`
+        head_content=$(sed -n "1,${LINES_NUM}p" "$f")
         if [[ "$head_content" != "$COPYRIGHT" ]];then
-            ERROR_FILES+=($f)
+            ERROR_FILES+=("$f")
             if [[ "$RUN_TYPE" == "fix" ]];then
-                sed -i '1s/^/\n/' $f
-                cat "$COPYRIGHT_FILE" $f > $TMP_FILE
-                mv $TMP_FILE $f
+                sed -i '1s/^/\n/' "$f"
+                cat "$COPYRIGHT_FILE" "$f" > $TMP_FILE
+                mv $TMP_FILE "$f"
             fi
         fi
     done
@@ -79,7 +79,7 @@ if [[ ${#ERROR_FILES[*]} > 0 ]];then
     else
         echo 'Please add copyright at the biginning of the files below:'
         printf '%s\n' "${ERROR_FILES[@]}"
-        exit -1
+        exit 1
     fi
 else
     echo 'Copyright check succeeded.'
