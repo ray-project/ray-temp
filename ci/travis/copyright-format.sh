@@ -77,7 +77,6 @@ for directory in "${CPP_FILES[@]}"; do
         if [[ "$head_content" != "$COPYRIGHT" ]];then
             ERROR_FILES+=("$f")
             if [[ "$RUN_TYPE" == "fix" ]];then
-                echo "$f"
                 sed '1s/^/\n/' "$f" > $TMP_FILE
                 mv $TMP_FILE "$f"
                 cat "$COPYRIGHT_FILE" "$f" > $TMP_FILE
@@ -94,7 +93,7 @@ if [[ ${#ERROR_FILES[*]} -gt 0 ]];then
         printf '%s\n' "${ERROR_FILES[@]}"
         exit 0
     else
-        echo 'Please add copyright at the biginning of the files below:'
+        echo 'Missing copyright info at the beginning of below files. Please run `sh ci/travis/copyright-format.sh -f` to fix them:'
         printf '%s\n' "${ERROR_FILES[@]}"
         exit 1
     fi
