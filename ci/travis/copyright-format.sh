@@ -25,11 +25,13 @@ LINES_NUM=$(echo "$COPYRIGHT" | wc -l)
 
 RUN_TYPE="diff"
 
-FILE_LIST_TMP_FILE=".cr_file_list_tmp"
+FILE_LIST_TMP_FILE="/tmp/.cr_file_list_tmp"
 
-TMP_FILE=".cr_tmp"
+TMP_FILE="/tmp/.cr_tmp"
 
-CPP_FILES=(cpp src)
+CPP_FILES=(src cpp)
+
+EXCLUDES_DIRS=(src/ray/object_manager/plasma/ src/ray/thirdparty)
 
 ERROR_FILES=()
 
@@ -58,7 +60,17 @@ while [ $# -gt 0 ]; do
 done
 
 for directory in "${CPP_FILES[@]}"; do
-    find "$directory" ! -name "$(printf "*\n*")" -name '*.cc' -or -name '*.h' > "$FILE_LIST_TMP_FILE"
+    cmd_args="find $directory -type f"
+    for excluded in "${EXCLUDES_DIRS[@]}"; do
+        cmd_args="${cmd_args} ! -path " 
+        cmd_args="${cmd_args} '${excluded}"
+        if [[ "${excluded: -1}" != "/" ]];then
+            cmd_args="${cmd_args}/"
+        fi
+        cmd_args="${cmd_args}*'"
+    done
+    cmd_args="${cmd_args} \( -name '*.cc' -or -name '*.h' \)"
+    eval $cmd_args > "$FILE_LIST_TMP_FILE"
     while IFS=$'\n' read -r f
     do
         head_content=$(sed -n "1,${LINES_NUM}p" "$f")
