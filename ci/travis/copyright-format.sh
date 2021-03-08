@@ -29,9 +29,15 @@ FILE_LIST_TMP_FILE="/tmp/.cr_file_list_tmp"
 
 TMP_FILE="/tmp/.cr_tmp"
 
-CPP_FILES=(src cpp)
+CPP_FILES=(
+    src
+    cpp
+)
 
-EXCLUDES_DIRS=(src/ray/object_manager/plasma/ src/ray/thirdparty)
+EXCLUDES_DIRS=(
+    src/ray/object_manager/plasma/
+    src/ray/thirdparty
+)
 
 ERROR_FILES=()
 
