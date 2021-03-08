@@ -12,7 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-
 /// This is a complete example of writing a distributed program using the C ++ worker API.
 
 /// including the header
