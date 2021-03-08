@@ -70,7 +70,7 @@ for directory in "${CPP_FILES[@]}"; do
         cmd_args="${cmd_args}*'"
     done
     cmd_args="${cmd_args} \( -name '*.cc' -or -name '*.h' \)"
-    eval $cmd_args > "$FILE_LIST_TMP_FILE"
+    eval "${cmd_args}" > "$FILE_LIST_TMP_FILE"
     while IFS=$'\n' read -r f
     do
         head_content=$(sed -n "1,${LINES_NUM}p" "$f")
