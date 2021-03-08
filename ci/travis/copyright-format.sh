@@ -89,11 +89,11 @@ done
 
 if [[ ${#ERROR_FILES[*]} -gt 0 ]];then
     if [[ "$RUN_TYPE" == "fix" ]];then
-        echo 'Copyright has been added to the files below:'
+        echo "Copyright has been added to the files below:"
         printf '%s\n' "${ERROR_FILES[@]}"
         exit 0
     else
-        echo 'Missing copyright info at the beginning of below files. Please run `sh ci/travis/copyright-format.sh -f` to fix them:'
+        echo "Missing copyright info at the beginning of below files. Please run 'sh ci/travis/copyright-format.sh -f' to fix them:"
         printf '%s\n' "${ERROR_FILES[@]}"
         exit 1
     fi
