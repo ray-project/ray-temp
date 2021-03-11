@@ -228,7 +228,7 @@ Please make sure your http-host and http-port are specified correctly.""")
             host=self.host,
             port=self.port,
             lifespan="off",
-            access_log=False)
+        )
         server = uvicorn.Server(config=config)
         # TODO(edoakes): we need to override install_signal_handlers here
         # because the existing implementation fails if it isn't running in
