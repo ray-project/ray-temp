@@ -185,7 +185,8 @@ Process WorkerPool::StartWorkerProcess(
   if (job_config) {
     // Note that we push the item to the front of the vector to make
     // sure this is the freshest option than others.
-    if (!job_config->jvm_options().empty()) {
+    if (language == Language::JAVA && !job_config->jvm_options().empty()) {
+      // The jvm options are only for Java worker.
       dynamic_options.insert(dynamic_options.begin(), job_config->jvm_options().begin(),
                              job_config->jvm_options().end());
     }
@@ -266,6 +267,16 @@ Process WorkerPool::StartWorkerProcess(
         absl::Base64Escape(RayConfig::instance().object_spilling_config()));
   }
 
+  std::string cwd;
+  if (job_config) {
+    if (language == Language::PYTHON && job_config->is_submitted_from_dashboard()) {
+      // Use python worker executable from job config to make Python worker
+      // run in virtualenv.
+      worker_command_args[0] = job_config->python_worker_executable();
+    }
+    cwd = job_config->worker_cwd();
+  }
+
   ProcessEnvironment env;
   if (!IsIOWorkerType(worker_type)) {
     // We pass the job ID to worker processes via an environment variable, so we don't
@@ -279,9 +290,10 @@ Process WorkerPool::StartWorkerProcess(
   for (const auto &pair : override_environment_variables) {
     env[pair.first] = pair.second;
   }
+  env.emplace("RAY_JOB_ID", job_id.Hex());
   // Start a process and measure the startup time.
   auto start = std::chrono::high_resolution_clock::now();
-  Process proc = StartProcess(worker_command_args, env);
+  Process proc = StartProcess(worker_command_args, env, cwd);
   auto end = std::chrono::high_resolution_clock::now();
   auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
   stats::ProcessStartupTimeMs.Record(duration.count());
@@ -328,7 +340,7 @@ void WorkerPool::MonitorStartingWorkerProcess(const Process &proc,
 }
 
 Process WorkerPool::StartProcess(const std::vector<std::string> &worker_command_args,
-                                 const ProcessEnvironment &env) {
+                                 const ProcessEnvironment &env, const std::string &cwd) {
   if (RAY_LOG_ENABLED(DEBUG)) {
     std::stringstream stream;
     stream << "Starting worker process with command:";
@@ -345,7 +357,7 @@ Process WorkerPool::StartProcess(const std::vector<std::string> &worker_command_
     argv.push_back(arg.c_str());
   }
   argv.push_back(NULL);
-  Process child(argv.data(), io_service_, ec, /*decouple=*/false, env);
+  Process child(argv.data(), io_service_, ec, /*decouple=*/false, env, cwd);
   if (!child.IsValid() || ec) {
     // errorcode 24: Too many files. This is caused by ulimit.
     if (ec.value() == 24) {

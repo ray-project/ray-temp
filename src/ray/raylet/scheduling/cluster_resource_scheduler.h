@@ -177,7 +177,7 @@ class ClusterResourceScheduler : public ClusterResourceSchedulerInterface {
   ///
   /// \param resource_name: Resource which we want to update.
   /// \param resource_total: New capacity of the resource.
-  void AddLocalResource(const std::string &resource_name, double resource_total);
+  void AddLocalResource(const std::string &resource_name, double resource_total) override;
 
   /// Check whether the available resources are empty.
   ///
@@ -393,6 +393,13 @@ class ClusterResourceScheduler : public ClusterResourceSchedulerInterface {
   /// \param gcs_resources: The remote cache from gcs.
   void UpdateLastResourceUsage(
       const std::shared_ptr<SchedulingResources> gcs_resources) override;
+
+  /// Check if a given resource from a given node exists.
+  ///
+  /// \param node_id_string: Node whose resource we want to check.
+  /// \param resource_name: Resource we want to check
+  bool ContainsResource(const std::string &node_id_string,
+                        const std::string &resource_name) override;
 
   /// Return human-readable string for this scheduler state.
   std::string DebugString() const;

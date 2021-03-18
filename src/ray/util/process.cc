@@ -18,7 +18,12 @@
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN 1
 #endif
+// clang-format off
+// Disable clang-format reorder includes to
+// make sure Psapi.h is included after Windows.h
 #include <Windows.h>
+#include <Psapi.h>  // EnumProcesses
+// clang-format on
 #include <Winternl.h>
 #include <process.h>
 #else
@@ -96,7 +101,7 @@ class ProcessFD {
 
   // Fork + exec combo. Returns -1 for the PID on failure.
   static ProcessFD spawnvpe(const char *argv[], std::error_code &ec, bool decouple,
-                            const ProcessEnvironment &env) {
+                            const ProcessEnvironment &env, const std::string &cwd) {
     ec = std::error_code();
     intptr_t fd;
     pid_t pid;
@@ -137,10 +142,12 @@ class ProcessFD {
         (void)cmd.c_str();  // We'll need this to be null-terminated (but mutable) below
         TCHAR *cmdline = &*cmd.begin();
         STARTUPINFO si = {sizeof(si)};
+        LPCSTR lpCurrentDirectory = cwd.empty() ? NULL : cwd.c_str();
         RAY_UNUSED(
             new_env_block.c_str());  // Ensure there's a final terminator for Windows
         char *const envp = &new_env_block[0];
-        if (CreateProcessA(NULL, cmdline, NULL, NULL, FALSE, 0, envp, NULL, &si, &pi)) {
+        if (CreateProcessA(NULL, cmdline, NULL, NULL, FALSE, 0, envp, lpCurrentDirectory,
+                           &si, &pi)) {
           succeeded = true;
           break;
         }
@@ -187,6 +194,11 @@ class ProcessFD {
       }
       // This is the spawned process. Any intermediate parent is now dead.
       pid_t my_pid = getpid();
+      // Change cwd for child process.
+      int r = chdir(cwd.c_str());
+      if (r != 0) {
+        ec = std::error_code(errno, std::system_category());
+      }
       if (write(pipefds[1], &my_pid, sizeof(my_pid)) == sizeof(my_pid)) {
         execvpe(argv[0], const_cast<char *const *>(argv),
                 const_cast<char *const *>(envp));
@@ -337,9 +349,9 @@ Process &Process::operator=(Process other) {
 Process::Process(pid_t pid) { p_ = std::make_shared<ProcessFD>(pid); }
 
 Process::Process(const char *argv[], void *io_service, std::error_code &ec, bool decouple,
-                 const ProcessEnvironment &env) {
+                 const ProcessEnvironment &env, const std::string &cwd) {
   (void)io_service;
-  ProcessFD procfd = ProcessFD::spawnvpe(argv, ec, decouple, env);
+  ProcessFD procfd = ProcessFD::spawnvpe(argv, ec, decouple, env, cwd);
   if (!ec) {
     p_ = std::make_shared<ProcessFD>(std::move(procfd));
   }
@@ -507,6 +519,189 @@ void Process::Kill() {
   } else {
     // (Null process case)
   }
+}
+
+/*
+BSD 3-Clause License
+
+Copyright (c) 2009, Jay Loden, Dave Daeschler, Giampaolo Rodola'
+All rights reserved.
+
+Redistribution and use in source and binary forms, with or without modification,
+are permitted provided that the following conditions are met:
+
+ * Redistributions of source code must retain the above copyright notice, this
+   list of conditions and the following disclaimer.
+
+ * Redistributions in binary form must reproduce the above copyright notice,
+   this list of conditions and the following disclaimer in the documentation
+   and/or other materials provided with the distribution.
+
+ * Neither the name of the psutil authors nor the names of its contributors
+   may be used to endorse or promote products derived from this software without
+   specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
+ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE LIABLE FOR
+ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+(INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
+LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON
+ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+from https://github.com/giampaolo/psutil
+*/
+
+#ifdef _WIN32
+DWORD *_get_pids(DWORD *numberOfReturnedPIDs) {
+  // Win32 SDK says the only way to know if our process array
+  // wasn't large enough is to check the returned size and make
+  // sure that it doesn't match the size of the array.
+  // If it does we allocate a larger array and try again
+
+  // Stores the actual array
+  DWORD *procArray = NULL;
+  DWORD procArrayByteSz;
+  int procArraySz = 0;
+
+  // Stores the byte size of the returned array from enumprocesses
+  DWORD enumReturnSz = 0;
+
+  do {
+    procArraySz += 1024;
+    if (procArray != NULL) free(procArray);
+    procArrayByteSz = procArraySz * sizeof(DWORD);
+    procArray = (DWORD *)malloc(procArrayByteSz);
+    if (procArray == NULL) {
+      return NULL;
+    }
+    if (!EnumProcesses(procArray, procArrayByteSz, &enumReturnSz)) {
+      free(procArray);
+      return NULL;
+    }
+  } while (enumReturnSz == procArraySz * sizeof(DWORD));
+
+  // The number of elements is the returned size / size of each element
+  *numberOfReturnedPIDs = enumReturnSz / sizeof(DWORD);
+
+  return procArray;
+}
+
+// Return 1 if PID exists, 0 if not, -1 on error.
+int _pid_in_pids(DWORD pid) {
+  DWORD *proclist = NULL;
+  DWORD numberOfReturnedPIDs;
+  DWORD i;
+
+  proclist = _get_pids(&numberOfReturnedPIDs);
+  if (proclist == NULL) {
+    return -1;
+  }
+  for (i = 0; i < numberOfReturnedPIDs; i++) {
+    if (proclist[i] == pid) {
+      free(proclist);
+      return 1;
+    }
+  }
+  free(proclist);
+  return 0;
+}
+
+// Given a process handle checks whether it's actually running. If it
+// does return the handle, else return NULL with Python exception set.
+// This is needed because OpenProcess API sucks.
+HANDLE
+_check_phandle(HANDLE hProcess, DWORD pid) {
+  DWORD exitCode;
+
+  if (hProcess == NULL) {
+    return NULL;
+  }
+
+  if (GetExitCodeProcess(hProcess, &exitCode)) {
+    // XXX - maybe STILL_ACTIVE is not fully reliable as per:
+    // http://stackoverflow.com/questions/1591342/#comment47830782_1591379
+    if (exitCode == STILL_ACTIVE) {
+      return hProcess;
+    }
+    if (_pid_in_pids(pid) == 1) {
+      return hProcess;
+    }
+    CloseHandle(hProcess);
+    return NULL;
+  }
+
+  if (GetLastError() == ERROR_ACCESS_DENIED) {
+    return hProcess;
+  }
+  CloseHandle(hProcess);
+  return NULL;
+}
+#endif
+
+/*
+ * Check if PID exists.
+ */
+bool Process::IsAlive(pid_t pid) {
+#ifdef _WIN32
+  HANDLE hProcess;
+
+  // Special case for PID 0 System Idle Process
+  if (pid == 0) return true;
+  if (pid < 0) return false;
+
+  hProcess =
+      OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, static_cast<DWORD>(pid));
+
+  // Access denied means there's a process to deny access to.
+  if ((hProcess == NULL) && (GetLastError() == ERROR_ACCESS_DENIED)) return true;
+
+  hProcess = _check_phandle(hProcess, pid);
+  if (hProcess != NULL) {
+    CloseHandle(hProcess);
+    return true;
+  }
+
+  CloseHandle(hProcess);
+  return false;
+#else
+  int ret;
+
+  // No negative PID exists, plus -1 is an alias for sending signal
+  // too all processes except system ones. Not what we want.
+  if (pid < 0) return false;
+
+  // As per "man 2 kill" PID 0 is an alias for sending the signal to
+  // every process in the process group of the calling process.
+  // Not what we want. Some platforms have PID 0, some do not.
+  // We decide that at runtime.
+  if (pid == 0) {
+    return false;
+  }
+
+  ret = kill(pid, 0);
+  if (ret == 0)
+    return true;
+  else {
+    if (errno == ESRCH) {
+      // ESRCH == No such process
+      return false;
+    } else if (errno == EPERM) {
+      // EPERM clearly indicates there's a process to deny
+      // access to.
+      return true;
+    } else {
+      // According to "man 2 kill" possible error values are
+      // (EINVAL, EPERM, ESRCH) therefore we should never get
+      // here. If we do let's be explicit in considering this
+      // an error.
+      return false;
+    }
+  }
+#endif
 }
 
 #ifdef _WIN32

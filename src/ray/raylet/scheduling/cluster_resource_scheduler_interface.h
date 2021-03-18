@@ -66,5 +66,19 @@ class ClusterResourceSchedulerInterface {
 
   /// Return local resources in human-readable string form.
   virtual std::string GetLocalResourceViewString() const = 0;
+
+  /// Add a local resource that is available.
+  ///
+  /// \param resource_name: Resource which we want to update.
+  /// \param resource_total: New capacity of the resource.
+  virtual void AddLocalResource(const std::string &resource_name,
+                                double resource_total) = 0;
+
+  /// Check if a given resource from a given node exists.
+  ///
+  /// \param node_id_string: Node whose resource we want to check.
+  /// \param resource_name: Resource we want to check
+  virtual bool ContainsResource(const std::string &node_id_string,
+                                const std::string &resource_name) = 0;
 };
 }  // namespace ray

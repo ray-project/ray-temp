@@ -286,6 +286,10 @@ cdef class ActorID(BaseID):
     def size(cls):
         return CActorID.Size()
 
+    @property
+    def job_id(self):
+        return JobID(self.data.JobId().Binary())
+
     def binary(self):
         return self.data.Binary()
 

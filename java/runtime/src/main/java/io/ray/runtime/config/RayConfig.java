@@ -47,6 +47,7 @@ public class RayConfig {
   public int nodeManagerPort;
 
   public final List<String> codeSearchPath;
+  public final boolean isSubmittedFromDashboard;
 
   public final List<String> headArgs;
 
@@ -54,6 +55,7 @@ public class RayConfig {
 
   public final List<String> jvmOptionsForJavaWorker;
   public final Map<String, String> workerEnv;
+  public String workerCwd;
 
   private void validate() {
     if (workerMode == WorkerType.WORKER) {
@@ -114,6 +116,11 @@ public class RayConfig {
     workerEnv = workerEnvBuilder.build();
     updateSessionDir(null);
 
+    // Worker current working directory.
+    if (config.hasPath("ray.job.worker-cwd")) {
+      workerCwd = config.getString("ray.job.worker-cwd");
+    }
+
     // Object store socket name.
     if (config.hasPath("ray.object-store.socket-name")) {
       objectStoreSocketName = config.getString("ray.object-store.socket-name");
@@ -152,6 +159,12 @@ public class RayConfig {
       codeSearchPathString = System.getProperty("java.class.path");
     }
     codeSearchPath = Arrays.asList(codeSearchPathString.split(":"));
+
+    if (config.hasPath("ray.job.is-submitted-from-dashboard")) {
+      isSubmittedFromDashboard = config.getBoolean("ray.job.is-submitted-from-dashboard");
+    } else {
+      isSubmittedFromDashboard = false;
+    }
 
     numWorkersPerProcess = config.getInt("ray.job.num-java-workers-per-process");
 

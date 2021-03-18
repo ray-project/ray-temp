@@ -17,9 +17,13 @@ import redis
 import requests
 
 from ray import ray_constants
-from ray.test_utils import (format_web_url, wait_for_condition,
-                            wait_until_server_available, run_string_as_driver,
-                            wait_until_succeeded_without_exception)
+from ray.test_utils import (
+    format_web_url,
+    wait_for_condition,
+    wait_until_server_available,
+    run_string_as_driver,
+    wait_until_succeeded_without_exception,
+)
 from ray.autoscaler._private.util import (DEBUG_AUTOSCALING_STATUS_LEGACY,
                                           DEBUG_AUTOSCALING_ERROR)
 from ray.new_dashboard import dashboard
@@ -82,7 +86,9 @@ def test_basic(ray_start_with_dashboard):
         0]
     dashboard_proc = psutil.Process(dashboard_proc_info.process.pid)
     assert dashboard_proc.status() in [
-        psutil.STATUS_RUNNING, psutil.STATUS_SLEEPING, psutil.STATUS_DISK_SLEEP
+        psutil.STATUS_RUNNING,
+        psutil.STATUS_SLEEPING,
+        psutil.STATUS_DISK_SLEEP,
     ]
     raylet_proc_info = all_processes[ray_constants.PROCESS_TYPE_RAYLET][0]
     raylet_proc = psutil.Process(raylet_proc_info.process.pid)
@@ -127,7 +133,9 @@ def test_basic(ray_start_with_dashboard):
     logger.info("Test agent register is OK.")
     wait_for_condition(lambda: _search_agent(raylet_proc.children()))
     assert dashboard_proc.status() in [
-        psutil.STATUS_RUNNING, psutil.STATUS_SLEEPING
+        psutil.STATUS_RUNNING,
+        psutil.STATUS_SLEEPING,
+        psutil.STATUS_DISK_SLEEP,
     ]
     agent_proc = _search_agent(raylet_proc.children())
     agent_pid = agent_proc.pid
