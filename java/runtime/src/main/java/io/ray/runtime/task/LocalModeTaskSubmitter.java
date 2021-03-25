@@ -116,7 +116,7 @@ public class LocalModeTaskSubmitter implements TaskSubmitter {
         }
       }
     }
-    if (taskSpec.getType() == TaskType.ACTOR_TASK  && !isConcurrentActor(taskSpec)) {
+    if (taskSpec.getType() == TaskType.ACTOR_TASK && !isConcurrentActor(taskSpec)) {
       ObjectId dummyObjectId =
           new ObjectId(
               taskSpec.getActorTaskSpec().getPreviousActorTaskDummyObjectId().toByteArray());
@@ -199,9 +199,9 @@ public class LocalModeTaskSubmitter implements TaskSubmitter {
             .setNumReturns(1)
             .setActorCreationTaskSpec(
                 ActorCreationTaskSpec.newBuilder()
-                  .setActorId(ByteString.copyFrom(actorId.toByteBuffer()))
-                  .setMaxConcurrency(options.maxConcurrency)
-                  .build())
+                    .setActorId(ByteString.copyFrom(actorId.toByteBuffer()))
+                    .setMaxConcurrency(options.maxConcurrency)
+                    .build())
             .build();
     submitTaskSpec(taskSpec);
     final LocalModeActorHandle actorHandle =
@@ -331,7 +331,7 @@ public class LocalModeTaskSubmitter implements TaskSubmitter {
 
       if (taskSpec.getType() == TaskType.ACTOR_CREATION_TASK) {
         actorMaxConcurrency.put(
-          getActorId(taskSpec), taskSpec.getActorCreationTaskSpec().getMaxConcurrency());
+            getActorId(taskSpec), taskSpec.getActorCreationTaskSpec().getMaxConcurrency());
       }
 
       if (unreadyObjects.isEmpty()) {
