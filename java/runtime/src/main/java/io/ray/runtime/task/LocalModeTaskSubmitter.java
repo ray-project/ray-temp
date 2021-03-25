@@ -473,7 +473,7 @@ public class LocalModeTaskSubmitter implements TaskSubmitter {
     return returnIds;
   }
 
-  /** Whether this is an concurrent actor. */
+  /** Whether this is an actor creation task spec of a concurrent actor. */
   private boolean isConcurrentActor(TaskSpec taskSpec) {
     final ActorId actorId = getActorId(taskSpec);
     Preconditions.checkNotNull(actorId);
