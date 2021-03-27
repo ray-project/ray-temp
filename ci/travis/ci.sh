@@ -395,6 +395,12 @@ lint_web() {
   )
 }
 
+lint_copyright() {
+  (
+    "${ROOT_DIR}"/copyright-format.sh -c
+  )
+}
+
 _lint() {
   local platform=""
   case "${OSTYPE}" in
@@ -420,6 +426,9 @@ _lint() {
     # Run TypeScript and HTML linting.
     lint_web
   fi
+  
+  # lint copyright
+  lint_copyright
 }
 
 lint() {
