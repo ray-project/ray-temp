@@ -37,10 +37,7 @@ int NotRegisteredFunc(int x) { return x; }
 void ExceptionFunc(int x) { throw std::invalid_argument(std::to_string(x)); }
 
 RAY_REMOTE(PlusOne);
-RAY_REMOTE(PlusTwo);
-RAY_REMOTE(VoidFuncNoArgs);
-RAY_REMOTE(VoidFuncWithArgs);
-RAY_REMOTE(ExceptionFunc);
+RAY_REMOTE(PlusTwo, VoidFuncNoArgs, VoidFuncWithArgs, ExceptionFunc);
 
 TEST(RayApiTest, DuplicateRegister) {
   bool r = FunctionManager::Instance().RegisterRemoteFunction("Return", Return);
