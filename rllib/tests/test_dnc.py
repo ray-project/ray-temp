@@ -12,10 +12,6 @@ from ray.rllib.examples.models.neural_computer import DNCMemory
 class TestDNC(unittest.TestCase):
 
     config = {
-        "env": StatelessCartPole,
-        "gamma": 0.99,
-        "num_envs_per_worker": 20,
-        "framework": "torch",
     }
 
     stop = {
@@ -25,7 +21,7 @@ class TestDNC(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls) -> None:
-        ray.init(num_cpus=5, ignore_reinit_error=True)
+        ray.init(num_cpus=4, ignore_reinit_error=True)
 
     @classmethod
     def tearDownClass(cls) -> None:
@@ -53,25 +49,33 @@ class TestDNC(unittest.TestCase):
 
     def test_dnc_learning(self):
         ModelCatalog.register_custom_model("dnc", DNCMemory)
-        config = dict(
-            self.config, **{
-                "num_workers": 0,
-                "entropy_coeff": 0.001,
-                "vf_loss_coeff": 1e-5,
-                "num_sgd_iter": 5,
-                "model": {
-                    "custom_model": "dnc",
-                    "max_seq_len": 10,
-                    "custom_model_config": {
-                        "nr_cells": 5,
-                        "read_heads": 2,
-                        "cell_size": 16,
-                    },
+        config = {
+        "env": StatelessCartPole,
+        "gamma": 0.99,
+        "num_envs_per_worker": 10,
+        "framework": "torch",
+            "num_workers": 0,
+            "num_gpus": 1,
+            "entropy_coeff": 0.0005,
+            "lr": 0.01,
+            #"vf_loss_coeff": 1e-5,
+            #"num_sgd_iter": 5,
+            "model": {
+                "custom_model": "dnc",
+                "max_seq_len": 10,
+                "custom_model_config": {
+                    "nr_cells": 10,
+                    "read_heads": 2,
+                    "cell_size": 4,
+                    "num_layers": 1,
+                    "hidden_size": 64,
                 },
-            })
-        tune.run("PPO", config=config, stop=self.stop, verbose=1)
+            },
+        }
+        tune.run("IMPALA", config=config, stop=self.stop, verbose=1)
 
 if __name__ == "__main__":
     import pytest
     import sys
-    sys.exit(pytest.main(["-v", __file__]))
+    unittest.main()
+    #sys.exit(pytest.main(["-v", __file__]))

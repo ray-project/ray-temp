@@ -19,12 +19,20 @@ class DNCMemory(TorchModelV2, nn.Module):
 
     DEFAULT_CONFIG = {
         "dnc_model": DNC,
-        "hidden_size": 128,
-        "num_layers": 1,
+        # Number of controller hidden layers
         "num_hidden_layers": 2,
+        # Number of weights per controller hidden layer
+        "hidden_size": 128,
+        # Number of LSTM units
+        "num_layers": 1,
+        # Number of read heads, i.e. how many addrs are read at once
         "read_heads": 4,
+        # Number of memory cells in the controller
         "nr_cells": 32,
+        # Size of each cell
         "cell_size": 16,
+        # LSTM activation function
+        "nonlinearity": "tanh",
     }
 
     MEMORY_KEYS = [
@@ -53,6 +61,7 @@ class DNCMemory(TorchModelV2, nn.Module):
         self.act_dim = gym.spaces.utils.flatdim(action_space)
 
         self.cfg = dict(self.DEFAULT_CONFIG, **custom_model_kwargs)
+        assert self.cfg['num_layers'] == 1, "num_layers != 1 has not been implemented yet"
         self.cur_val = None
 
         self.logit_branch = SlimFC(
@@ -169,8 +178,8 @@ class DNCMemory(TorchModelV2, nn.Module):
         B = len(seq_lens)
         T = flat.shape[0] // B
 
-        logits = torch.zeros(B, T, self.num_outputs, device=flat.device)
-        values = torch.zeros(B, T, 1, device=flat.device)
+        #logits = torch.zeros(B, T, self.num_outputs, device=flat.device)
+        #values = torch.zeros(B, T, 1, device=flat.device)
         # Deconstruct batch into batch and time dimensions: [B, T, feats]
         flat = torch.reshape(flat, [-1, T] + list(flat.shape[1:]))
 
@@ -182,28 +191,25 @@ class DNCMemory(TorchModelV2, nn.Module):
                 input_size=self.obs_dim,
                 hidden_size=self.cfg["hidden_size"],
                 num_layers=self.cfg["num_layers"],
+                num_hidden_layers=self.cfg["num_hidden_layers"],
                 read_heads=self.cfg["read_heads"],
                 cell_size=self.cfg["cell_size"],
                 nr_cells=self.cfg["nr_cells"],
+                nonlinearity=self.cfg["nonlinearity"],
                 gpu_id=gpu_id,
             )
-            output, (ctrl_hidden, memory_dict, read_vecs) = self.dnc(
-                flat, (ctrl_hidden, memory_dict, read_vecs))
 
         else:
             ctrl_hidden, memory_dict, read_vecs = self.unpack_state(state)
-            output, (ctrl_hidden, memory_dict, read_vecs) = self.dnc(
-                flat, (ctrl_hidden, memory_dict, read_vecs))
+
+        output, (ctrl_hidden, memory_dict, read_vecs) = self.dnc(
+            flat, (ctrl_hidden, memory_dict, read_vecs))
 
         packed_state = self.pack_state(ctrl_hidden, memory_dict, read_vecs)
 
         # Compute action/value from output
-        for t in range(T):
-            logits[:, t] = self.logit_branch(output[:, t])
-            values[:, t] = self.value_branch(output[:, t])
-
-        logits = logits.reshape((B * T, self.num_outputs))
-        values = values.reshape((B * T, 1))
+        logits = self.logit_branch(output.view(B * T, -1))
+        values = self.value_branch(output.view(B * T, -1))
 
         self.cur_val = values.squeeze(1)
 
