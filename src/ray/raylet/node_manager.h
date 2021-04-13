@@ -651,14 +651,14 @@ class NodeManager : public rpc::NodeManagerServiceHandler {
   std::unique_ptr<AgentManager> agent_manager_;
 
   /// The RPC server.
-  rpc::GrpcServer node_manager_server_;
+  rpc::GrpcCallbackServer node_manager_server_;
 
   /// The node manager RPC service.
-  rpc::NodeManagerGrpcService node_manager_service_;
+  rpc::NodeManagerServiceWithCallbacks node_manager_service_;
 
   /// The agent manager RPC service.
   std::unique_ptr<rpc::AgentManagerServiceHandler> agent_manager_service_handler_;
-  rpc::AgentManagerGrpcService agent_manager_service_;
+  rpc::AgentManagerServiceWithCallbacks agent_manager_service_;
 
   /// The `ClientCallManager` object that is shared by all `NodeManagerClient`s
   /// as well as all `CoreWorkerClient`s.
