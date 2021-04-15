@@ -382,12 +382,17 @@ def test_connect_with_disconnected_node(shutdown_only):
     }],
     indirect=True)
 def test_parallel_actor_fill_plasma_retry(ray_start_cluster_head):
-    @ray.remote
+    @ray.remote(num_cpus=0)
     class LargeMemoryActor:
         def some_expensive_task(self):
             return np.zeros(10**8 // 2, dtype=np.uint8)
 
+        def ready(self):
+            pass
+
     actors = [LargeMemoryActor.remote() for _ in range(5)]
+
+    # ray.get([actor.ready.remote() for actor in actors], timeout=10)
     for _ in range(5):
         pending = [a.some_expensive_task.remote() for a in actors]
         while pending:
@@ -707,4 +712,4 @@ def test_raylet_node_manager_server_failure(ray_start_cluster_head,
 
 if __name__ == "__main__":
     import pytest
-    sys.exit(pytest.main(["-v", __file__]))
+    sys.exit(pytest.main(["-vs", "--durations=0", __file__]))
