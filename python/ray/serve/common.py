@@ -1,10 +1,12 @@
 from dataclasses import dataclass, field
-from pydantic import BaseModel
 from typing import Any, Dict, List, Optional
 from uuid import UUID
 
+from pydantic import BaseModel
+
 import numpy as np
 
+from ray.actor import ActorHandle
 from ray.serve.config import BackendConfig, ReplicaConfig
 
 BackendTag = str
@@ -20,6 +22,14 @@ class EndpointInfo:
     http_methods: List[str]
     python_methods: Optional[List[str]] = field(default_factory=list)
     route: Optional[str] = None
+
+
+@dataclass(frozen=True)
+class Replica:
+    replica_tag: ReplicaTag
+    version: str
+    actor_handle: ActorHandle
+    runtime_metadata: Any
 
 
 class BackendInfo(BaseModel):
