@@ -13,13 +13,9 @@ from typing import Callable, Dict, List, Optional, Type, Union
 import ray
 from ray.exceptions import RayError
 from ray.rllib.agents.callbacks import DefaultCallbacks
-<<<<<<< HEAD
-=======
-from ray.rllib.env.normalize_actions import \
-    NormalizeActionWrapper, NormalizeMultiAgentActionWrapper
->>>>>>> normalize multiagent action wrapper added, modified trainer
 from ray.rllib.env.env_context import EnvContext
-from ray.rllib.env.normalize_actions import NormalizeActionWrapper
+from ray.rllib.env.normalize_actions import NormalizeActionWrapper, \
+    NormalizeMultiAgentActionWrapper
 from ray.rllib.env.utils import gym_env_creator
 from ray.rllib.evaluation.collectors.simple_list_collector import \
     SimpleListCollector
