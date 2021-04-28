@@ -305,12 +305,8 @@ class DiagGaussian(TFActionDistribution):
         return np.prod(action_space.shape) * 2
 
 
-class SquashedGaussian(TFActionDistribution):
-    """A tanh-squashed Gaussian distribution defined by: mean, std, low, high.
-
-    The distribution will never return low or high exactly, but
-    `low`+SMALL_NUMBER or `high`-SMALL_NUMBER respectively.
-    """
+class _SquashedGaussianBase(TFActionDistribution):
+    """A diagonal gaussian distribution, squashed into bounded support."""
 
     def __init__(self,
                  inputs: List[TensorType],
@@ -327,11 +323,17 @@ class SquashedGaussian(TFActionDistribution):
         """
         assert tfp is not None
         mean, log_std = tf.split(inputs, 2, axis=-1)
-        # Clip `scale` values (coming from NN) to reasonable values.
-        log_std = tf.clip_by_value(log_std, MIN_LOG_NN_OUTPUT,
-                                   MAX_LOG_NN_OUTPUT)
-        std = tf.exp(log_std)
+        self._num_vars = mean.shape[1]
+        assert log_std.shape[1] == self._num_vars
+        # Clip `std` values (coming from NN) to reasonable values.
+        self.log_std = tf.clip_by_value(log_std, MIN_LOG_NN_OUTPUT,
+                                        MAX_LOG_NN_OUTPUT)
+        # Clip loc too, for numerical stability reasons.
+        mean = tf.clip_by_value(mean, -3, 3)
+        std = tf.exp(self.log_std)
         self.distr = tfp.distributions.Normal(loc=mean, scale=std)
+        assert len(self.distr.loc.shape) == 2
+        assert len(self.distr.scale.shape) == 2
         assert np.all(np.less(low, high))
         self.low = low
         self.high = high
@@ -340,27 +342,80 @@ class SquashedGaussian(TFActionDistribution):
     @override(ActionDistribution)
     def deterministic_sample(self) -> TensorType:
         mean = self.distr.mean()
-        return self._squash(mean)
-
-    @override(TFActionDistribution)
-    def _build_sample_op(self) -> TensorType:
-        return self._squash(self.distr.sample())
+        assert len(mean.shape) == 2
+        s = self._squash(mean)
+        assert len(s.shape) == 2
+        return s
 
     @override(ActionDistribution)
     def logp(self, x: TensorType) -> TensorType:
         # Unsquash values (from [low,high] to ]-inf,inf[)
+        assert len(x.shape) >= 2, "First dim batch, second dim variable"
         unsquashed_values = self._unsquash(x)
         # Get log prob of unsquashed values from our Normal.
         log_prob_gaussian = self.distr.log_prob(unsquashed_values)
         # For safety reasons, clamp somehow, only then sum up.
         log_prob_gaussian = tf.clip_by_value(log_prob_gaussian, -100, 100)
-        log_prob_gaussian = tf.reduce_sum(log_prob_gaussian, axis=-1)
         # Get log-prob for squashed Gaussian.
-        unsquashed_values_tanhd = tf.math.tanh(unsquashed_values)
-        log_prob = log_prob_gaussian - tf.reduce_sum(
-            tf.math.log(1 - unsquashed_values_tanhd**2 + SMALL_NUMBER),
+        return tf.reduce_sum(
+            log_prob_gaussian - self._log_squash_grad(unsquashed_values),
             axis=-1)
-        return log_prob
+
+    @override(TFActionDistribution)
+    def _build_sample_op(self):
+        s = self._squash(self.distr.sample())
+        assert len(s.shape) == 2
+        return s
+
+    def _squash(self, unsquashed_values):
+        """Squash an array element-wise into the (high, low) range
+
+        Arguments:
+            unsquashed_values: values to be squashed
+
+        Returns:
+            The squashed values.  The output shape is `unsquashed_values.shape`
+
+        """
+        raise NotImplementedError
+
+    def _unsquash(self, values):
+        """Unsquash an array element-wise from the (high, low) range
+
+        Arguments:
+            squashed_values: values to be unsquashed
+
+        Returns:
+            The unsquashed values.  The output shape is `squashed_values.shape`
+
+        """
+        raise NotImplementedError
+
+    def _log_squash_grad(self, unsquashed_values):
+        """Log gradient of _squash with respect to its argument.
+
+        Arguments:
+            squashed_values:  Point at which to measure the gradient.
+
+        Returns:
+            The gradient at the given point.  The output shape is
+            `squashed_values.shape`.
+
+        """
+        raise NotImplementedError
+
+
+class SquashedGaussian(_SquashedGaussianBase):
+    """A tanh-squashed Gaussian distribution defined by: mean, std, low, high.
+
+    The distribution will never return low or high exactly, but
+    `low`+SMALL_NUMBER or `high`-SMALL_NUMBER respectively.
+    """
+
+    @override(_SquashedGaussianBase)
+    def _log_squash_grad(self, unsquashed_values):
+        unsquashed_values_tanhd = tf.math.tanh(unsquashed_values)
+        return tf.math.log(1 - unsquashed_values_tanhd**2 + SMALL_NUMBER)
 
     @override(ActionDistribution)
     def entropy(self) -> TensorType:
@@ -384,6 +439,78 @@ class SquashedGaussian(TFActionDistribution):
             normed_values, -1.0 + SMALL_NUMBER, 1.0 - SMALL_NUMBER)
         unsquashed = tf.math.atanh(save_normed_values)
         return unsquashed
+
+    @staticmethod
+    @override(ActionDistribution)
+    def required_model_output_shape(
+            action_space: gym.Space,
+            model_config: ModelConfigDict) -> Union[int, np.ndarray]:
+        return np.prod(action_space.shape) * 2
+
+
+class GaussianSquashedGaussian(_SquashedGaussianBase):
+    """A gaussian CDF-squashed Gaussian distribution.
+
+    Can be used instead of the `SquashedGaussian` in case entropy or KL need
+    to be computable in analytical form (`SquashedGaussian` can only provide
+    those empirically).
+
+    The distribution will never return low or high exactly, but
+    `low`+SMALL_NUMBER or `high`-SMALL_NUMBER respectively.
+    """
+    # Chosen to match the standard logistic variance, so that:
+    #   Var(N(0, 2 * _SCALE)) = Var(Logistic(0, 1))
+    _SCALE = 0.5 * 1.8137
+
+    @override(ActionDistribution)
+    def kl(self, other):
+        # KL(self || other) is just the KL of the two unsquashed distributions.
+        assert isinstance(other, GaussianSquashedGaussian)
+
+        mean = self.distr.loc
+        std = self.distr.scale
+
+        other_mean = other.distr.loc
+        other_std = other.distr.scale
+
+        return tf.reduce_sum(
+            (other.log_std - self.log_std +
+             (tf.math.square(std) + tf.math.square(mean - other_mean)) /
+             (2.0 * tf.math.square(other_std)) - 0.5),
+            axis=1)
+
+    def entropy(self):
+        # Entropy is:
+        #   -KL(self.distr || N(0, _SCALE)) + log(high - low)
+        # where the latter distribution's CDF is used to do the squashing.
+
+        mean = self.distr.loc
+        std = self.distr.scale
+
+        return tf.reduce_sum(
+            tf.math.log(self.high - self.low) -
+            (tf.math.log(self._SCALE) - self.log_std +
+             (tf.math.square(std) + tf.math.square(mean)) /
+             (2.0 * tf.math.square(self._SCALE)) - 0.5),
+            axis=1)
+
+    def _log_squash_grad(self, unsquashed_values):
+        squash_dist = tfp.distributions.Normal(loc=0, scale=self._SCALE)
+        log_grad = squash_dist.log_prob(value=unsquashed_values)
+        log_grad += tf.math.log(self.high - self.low)
+        return log_grad
+
+    def _squash(self, raw_values):
+        # Make sure raw_values are not too high/low (such that tanh would
+        # return exactly 1.0/-1.0, which would lead to +/-inf log-probs).
+
+        values = tfp.bijectors.NormalCDF().forward(raw_values / self._SCALE)
+        return (tf.clip_by_value(values, SMALL_NUMBER, 1.0 - SMALL_NUMBER) *
+                (self.high - self.low) + self.low)
+
+    def _unsquash(self, values):
+        return self._SCALE * tfp.bijectors.NormalCDF().inverse(
+            (values - self.low) / (self.high - self.low))
 
     @staticmethod
     @override(ActionDistribution)
@@ -478,15 +605,26 @@ class Deterministic(TFActionDistribution):
 
 class MultiActionDistribution(TFActionDistribution):
     """Action distribution that operates on a set of actions.
-
-    Args:
-        inputs (Tensor list): A list of tensors from which to compute samples.
     """
 
-    def __init__(self, inputs, model, *, child_distributions, input_lens,
-                 action_space):
-        ActionDistribution.__init__(self, inputs, model)
+    def __init__(self, inputs: List[TensorType], model: ModelV2, *,
+                 child_distributions: List[TFActionDistribution],
+                 input_lens: List[int], action_space: gym.spaces.Space):
+        """Initializes a MultiActionDistribution instance.
 
+        Args:
+            inputs (List[TensorType): A list of tensors from which to compute
+                samples.
+            child_distributions (List[TFActionDistribution]): Flattened list
+                of the child distributions within this multi distribution.
+            input_lens (List[int]): List of input vector lengths corresponding
+                to the list of `child_distributions`.
+            action_space (gym.spaces.Space): The (Tuple/Dict) action space
+                underlying this multi distribution.
+        """
+        ActionDistribution.__init__(self, inputs, model)
+        # The base struct (python dict/tuple) corresponding to the complex
+        # action space.
         self.action_space_struct = get_base_struct_from_space(action_space)
 
         self.input_lens = np.array(input_lens, dtype=np.int32)

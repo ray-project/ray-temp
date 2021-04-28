@@ -47,6 +47,10 @@ parser.add_argument(
     "--torch",
     action="store_true",
     help="Runs all tests with PyTorch enabled.")
+parser.add_argument(
+    "--local-mode",
+    action="store_true",
+    help="Whether to run ray with `local_mode=True`.")
 
 if __name__ == "__main__":
     args = parser.parse_args()

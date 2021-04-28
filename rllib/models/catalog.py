@@ -14,9 +14,10 @@ from ray.rllib.models.modelv2 import ModelV2
 from ray.rllib.models.preprocessors import get_preprocessor, Preprocessor
 from ray.rllib.models.tf.tf_action_dist import Categorical, \
     Deterministic, DiagGaussian, Dirichlet, \
+    GaussianSquashedGaussian, \
     MultiActionDistribution, MultiCategorical
 from ray.rllib.models.torch.torch_action_dist import TorchCategorical, \
-    TorchDeterministic, TorchDiagGaussian, \
+    TorchDeterministic, TorchDiagGaussian, TorchGaussianSquashedGaussian, \
     TorchMultiActionDistribution, TorchMultiCategorical
 from ray.rllib.utils.annotations import DeveloperAPI, PublicAPI
 from ray.rllib.utils.deprecation import DEPRECATED_VALUE, \
@@ -194,7 +195,7 @@ class ModelCatalog:
             config: ModelConfigDict,
             dist_type: Optional[Union[str, Type[ActionDistribution]]] = None,
             framework: str = "tf",
-            **kwargs) -> (type, int):
+            **kwargs) -> (Type[ActionDistribution], int):
         """Returns a distribution class and size for the given action space.
 
         Args:
@@ -208,11 +209,9 @@ class ModelCatalog:
                 constructor.
 
         Returns:
-            Tuple:
-                - dist_class (ActionDistribution): Python class of the
-                    distribution.
-                - dist_dim (int): The size of the input vector to the
-                    distribution.
+            Tuple[Type[ActionDistribution], int]: Python class of the
+                distribution and the size of the input vector to the
+                distribution.
         """
 
         dist_cls = None
@@ -256,13 +255,35 @@ class ModelCatalog:
                         "Consider reshaping this into a single dimension, "
                         "using a custom action distribution, "
                         "using a Tuple action space, or the multi-agent API.")
-                # TODO(sven): Check for bounds and return SquashedNormal, etc..
+
                 if dist_type is None:
-                    dist_cls = TorchDiagGaussian if framework == "torch" \
-                        else DiagGaussian
+                    cls = TorchGaussianSquashedGaussian if \
+                        framework == "torch" else GaussianSquashedGaussian
+                    if np.any(action_space.bounded_below &
+                              action_space.bounded_above):
+                        lo = np.min(action_space.low)
+                        hi = np.max(action_space.high)
+                        if np.any(action_space.low != lo) or \
+                                np.any(action_space.high != hi):
+                            raise UnsupportedSpaceException(
+                                "The Box space has non-matching low/high "
+                                "value(s). Make sure that all low/high "
+                                "values are the same accross the different "
+                                "dimensions of your Box. If the different "
+                                "dimensions must have different low/high "
+                                "values, try splitting up your space into "
+                                "a Tuple or Dict space.")
+                        dist_cls = partial(cls, low=lo, high=hi)
+                        num_inputs = cls.required_model_output_shape(
+                            action_space, config)
+                        return dist_cls, num_inputs
+                    else:
+                        dist_cls = TorchDiagGaussian if \
+                            framework == "torch" else DiagGaussian
                 elif dist_type == "deterministic":
                     dist_cls = TorchDeterministic if framework == "torch" \
                         else Deterministic
+
         # Discrete Space -> Categorical.
         elif isinstance(action_space, Discrete):
             dist_cls = TorchCategorical if framework == "torch" else \
