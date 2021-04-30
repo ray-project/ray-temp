@@ -6,11 +6,12 @@ import os
 import time
 from dataclasses import dataclass
 from functools import wraps
-from typing import (TYPE_CHECKING, Any, Callable, Dict, List, Optional, Tuple,
-                    Type, Union, overload)
+from typing import (Any, Callable, Dict, List, Optional, Tuple, Type, Union,
+                    overload)
 from warnings import warn
 from weakref import WeakValueDictionary
 
+from fastapi import FastAPI, APIRouter
 from starlette.requests import Request
 
 from ray import cloudpickle
@@ -29,9 +30,6 @@ from ray.serve.utils import (ensure_serialization_context, format_actor_name,
                              logger)
 
 import ray
-
-if TYPE_CHECKING:
-    from fastapi import APIRouter, FastAPI  # noqa: F401
 
 _INTERNAL_REPLICA_CONTEXT = None
 _global_client = None
@@ -938,12 +936,12 @@ def get_replica_context() -> ReplicaContext:
     return _INTERNAL_REPLICA_CONTEXT
 
 
-def ingress(app: Union["FastAPI", "APIRouter"]):
-    """Mark a FastAPI application ingress for Serve.
+def ingress(app: Union["FastAPI", "APIRouter", Callable]):
+    """Mark a ASGI application ingress for Serve.
 
     Args:
-        app(FastAPI,APIRouter): the app or router object serve as ingress
-            for this backend.
+        app (FastAPI,APIRouter,Starlette, etc): the app or router object serve
+            as ingress for this backend. It can be any ASGI compatible object.
 
     Example:
     >>> app = FastAPI()
@@ -964,7 +962,8 @@ def ingress(app: Union["FastAPI", "APIRouter"]):
 
         # Sometimes there are decorators on the methods. We want to fix
         # the fast api routes here.
-        make_fastapi_class_based_view(app, cls)
+        if isinstance(app, (FastAPI, APIRouter)):
+            make_fastapi_class_based_view(app, cls)
 
         # Free the state of the app so subsequent modification won't affect
         # this ingress deployment. We don't use copy.copy here to avoid
