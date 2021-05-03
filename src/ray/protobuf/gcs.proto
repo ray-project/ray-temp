@@ -40,11 +40,12 @@ enum TablePrefix {
   DIRECT_ACTOR = 17;
   // WORKER is already used in WorkerType, so use WORKERS here.
   WORKERS = 18;
-  INTERNAL_CONFIG = 29;
-  TABLE_PREFIX_MAX = 20;
-  PLACEMENT_GROUP_SCHEDULE = 21;
-  PLACEMENT_GROUP = 22;
-  KV = 23;
+  INTERNAL_CONFIG = 19;
+  PLACEMENT_GROUP_SCHEDULE = 20;
+  PLACEMENT_GROUP = 21;
+  KV = 22;
+  ACTOR_TASK_SPEC = 23;
+  TABLE_PREFIX_MAX = 24;
 }
 
 // The channel that Add operations to the Table should be published on, if any.
@@ -139,8 +140,8 @@ message ActorTableData {
   string name = 12;
   // Last timestamp that the actor state was updated.
   double timestamp = 13;
-  // The task specification of this actor's creation task.
-  TaskSpec task_spec = 14;
+  // Language the job uses.
+  Language language = 14;
   // Resource mapping ids acquired by the leased worker. This field is only set when this
   // actor already has a leased worker.
   repeated ResourceMapEntry resource_mapping = 15;
@@ -148,7 +149,17 @@ message ActorTableData {
   uint32 pid = 16;
   // The exception thrown in creation task. This field is set if this actor died because
   // of exception thrown in creation task. Only applies when state=DEAD.
-  RayException creation_task_exception = 18;
+  RayException creation_task_exception = 17;
+  // The function descriptor of the actor creation task.
+  FunctionDescriptor function_descriptor = 18;
+  // Field used for storing application-level extensions to the actor definition.
+  // See ActorCreationTaskSpec.
+  string extension_data = 19;
+  // The max number of times tasks submitted on this actor should be retried
+  // if the actor fails and is restarted.
+  // If this number is 0 the tasks won't be resubmitted.
+  // If this number is -1 the tasks will be resubmitted indefinitely.
+  int64 max_task_retries = 20;
 }
 
 message ErrorTableData {

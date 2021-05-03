@@ -42,6 +42,14 @@ class GcsActor {
   explicit GcsActor(rpc::ActorTableData actor_table_data)
       : actor_table_data_(std::move(actor_table_data)) {}
 
+  /// Create a GcsActor by actor_table_data.
+  ///
+  /// \param actor_table_data Data of the actor (see gcs.proto).
+  /// \param task_spec Contains the actor creation task specification.
+  explicit GcsActor(rpc::ActorTableData actor_table_data, ray::rpc::TaskSpec task_spec)
+      : actor_table_data_(std::move(actor_table_data)),
+        task_spec_(std::unique_ptr<rpc::TaskSpec>(new rpc::TaskSpec(task_spec))) {}
+
   /// Create a GcsActor by TaskSpec.
   ///
   /// \param task_spec Contains the actor creation task specification.
@@ -55,16 +63,21 @@ class GcsActor {
 
     auto dummy_object = TaskSpecification(task_spec).ActorDummyObject().Binary();
     actor_table_data_.set_actor_creation_dummy_object_id(dummy_object);
-
+    actor_table_data_.set_language(task_spec.language());
+    actor_table_data_.set_extension_data(
+        task_spec.actor_creation_task_spec().extension_data());
+    actor_table_data_.mutable_function_descriptor()->CopyFrom(
+        task_spec.function_descriptor());
     actor_table_data_.set_is_detached(actor_creation_task_spec.is_detached());
     actor_table_data_.set_name(actor_creation_task_spec.name());
     actor_table_data_.mutable_owner_address()->CopyFrom(task_spec.caller_address());
 
     actor_table_data_.set_state(rpc::ActorTableData::DEPENDENCIES_UNREADY);
-    actor_table_data_.mutable_task_spec()->CopyFrom(task_spec);
 
     actor_table_data_.mutable_address()->set_raylet_id(NodeID::Nil().Binary());
     actor_table_data_.mutable_address()->set_worker_id(WorkerID::Nil().Binary());
+
+    task_spec_ = std::unique_ptr<rpc::TaskSpec>(new rpc::TaskSpec(task_spec));
   }
 
   /// Get the node id on which this actor is created.
@@ -96,7 +109,6 @@ class GcsActor {
   std::string GetName() const;
   /// Get the task specification of this actor.
   TaskSpecification GetCreationTaskSpecification() const;
-
   /// Get the immutable ActorTableData of this actor.
   const rpc::ActorTableData &GetActorTableData() const;
   /// Get the mutable ActorTableData of this actor.
@@ -106,6 +118,7 @@ class GcsActor {
   /// The actor meta data which contains the task specification as well as the state of
   /// the gcs actor and so on (see gcs.proto).
   rpc::ActorTableData actor_table_data_;
+  std::unique_ptr<rpc::TaskSpec> task_spec_;
 };
 
 using RegisterActorCallback = std::function<void(std::shared_ptr<GcsActor>)>;
