@@ -277,6 +277,14 @@ message JobConfig {
 }
 
 message JobTableData {
+  enum JobState {
+    // The job is submitted from dashboard.
+    SUBMITTED = 0;
+    // The job has started running and the driver has registered to GCS.
+    RUNNING = 1;
+    // The driver is exited.
+    FINISHED = 2;
+  }
   // The job ID.
   bytes job_id = 1;
   // Whether it's dead.
@@ -285,10 +293,23 @@ message JobTableData {
   int64 timestamp = 3;
   // IP address of the driver that started this job.
   string driver_ip_address = 4;
+  // Host name of the node which the driver was started on.
+  string driver_hostname = 5;
   // Process ID of the driver running this job.
-  int64 driver_pid = 5;
+  int64 driver_pid = 6;
+  // Raylet which the job's driver belongs to
+  bytes raylet_id = 7;
+  // Language the job uses
+  Language language = 8;
   // The config of this job.
-  JobConfig config = 6;
+  JobConfig config = 9;
+  // Job state.
+  JobState state = 10;
+  // Job payload (The original job request json from dashboard).
+  string job_payload = 11;
+  // Whether the job is submitted from dashboard. This field
+  // determines whether to initialize the job environment or not.
+  bool is_submitted_from_dashboard = 12;
 }
 
 message WorkerTableData {
