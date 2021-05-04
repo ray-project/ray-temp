@@ -154,6 +154,28 @@ def _build_cpu_gpu_images(image_name, no_cache=True) -> List[str]:
     return built_images
 
 
+def _test_ray_ml_libraries(image_tag: str) -> None:
+    if "gpu" not in image_tag:
+        return
+    tf_container = DOCKER_CLIENT.containers.run(
+        f"rayproject/ray-ml:{image_tag}",
+        "pip freeze",
+        detach=True)
+    tf_logs = tf_container.logs().decode()
+    print(str(tf_logs))
+    #assert "tensorflow-gpu" in tf_logs, str(tf_logs)
+    tf_container.stop()
+
+    # torch_container = DOCKER_CLIENT.containers.run(
+    #     f"rayproject/ray-ml:{image_tag}",
+    #     "pip freeze",
+    #     detach=True)
+    # torch_logs = torch_container.logs().decode()
+    # print(str(torch_logs))
+    # #assert "cu" in torch_logs and "cpu" not in torch_logs, str(torch_logs)
+    # torch_container.stop()
+
+
 def copy_wheels():
     root_dir = _get_root_dir()
     wheels = _get_wheel_name(None)
@@ -214,6 +236,7 @@ def build_ray_ml():
         tag = img.split(":")[-1]
         DOCKER_CLIENT.api.tag(
             image=img, repository="rayproject/autoscaler", tag=tag)
+        _test_ray_ml_libraries(tag)
 
 
 def _get_docker_creds() -> Tuple[str, str]:
