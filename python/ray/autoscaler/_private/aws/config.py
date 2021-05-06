@@ -190,6 +190,10 @@ def log_to_cli(config):
 
 
 def bootstrap_aws(config):
+    # If NetworkInterfaces are provided, extract the necessary fields for the
+    # config stages below.
+    config = _configure_from_network_interfaces(config)
+
     # The head node needs to have an IAM role that allows it to create further
     # EC2 instances.
     config = _configure_iam_role(config)
@@ -713,6 +717,51 @@ def _get_key(key_name, config):
         handle_boto_error(exc, "Failed to fetch EC2 key pair {} from AWS.",
                           cf.bold(key_name))
         raise exc
+
+
+def _configure_from_network_interfaces(config):
+    for cfg_key in NODE_KIND_CONFIG_KEYS.values():
+        config = _configure_node_type_from_network_interface(config, cfg_key)
+    return config
+
+
+def _configure_node_type_from_network_interface(config, node_type):
+    node_cfg = config[node_type]
+    if "NetworkInterfaces" not in node_cfg:
+        return config
+    _configure_subnets_and_groups_from_network_interfaces(node_cfg)
+    return config
+
+
+def _configure_subnets_and_groups_from_network_interfaces(node_cfg):
+    # If NetworkInterfaces are defined, SubnetId and SecurityGroupIds
+    # can't be specified in head/worker node config.
+    conflict_keys = ["SubnetId", "SubnetIds", "SecurityGroupIds"]
+    if any(conflict in node_cfg for conflict in conflict_keys):
+        raise ValueError(
+            "If NetworkInterfaces are defined, subnets and security groups"
+            "must ONLY be given in each NetworkInterface.")
+    if not all(_subnets_in_network_config(node_cfg)):
+        raise ValueError(
+            "NetworkInterfaces are defined but at least one is missing a "
+            "subnet. Please ensure all interfaces have a subnet assigned.")
+    if not all(_security_groups_in_network_config(node_cfg)):
+        raise ValueError(
+            "NetworkInterfaces are defined but at least one is missing a "
+            "security group. Please ensure all interfaces have a security "
+            "group assigned.")
+    node_cfg["SubnetIds"] = _subnets_in_network_config(node_cfg)
+    node_cfg["SecurityGroupIds"] = _security_groups_in_network_config(node_cfg)
+
+
+def _subnets_in_network_config(config):
+    return [
+        ni.get("SubnetId", "") for ni in config.get("NetworkInterfaces", [])
+    ]
+
+
+def _security_groups_in_network_config(config):
+    return [ni.get("Groups", []) for ni in config.get("NetworkInterfaces", [])]
 
 
 def _client(name, config):
