@@ -358,6 +358,7 @@ Papers
 
    development.rst
    whitepaper.rst
+   versions.rst
    debugging.rst
    profiling.rst
    fault-tolerance.rst
