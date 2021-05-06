@@ -238,6 +238,11 @@ def debug(address):
     type=str,
     help="the IP address of this node")
 @click.option(
+    "--external-addresses",
+    required=False,
+    type=str,
+    help="the external redis address(es) to be used")
+@click.option(
     "--address", required=False, type=str, help="the address to use for Ray")
 @click.option(
     "--port",
@@ -452,9 +457,9 @@ def debug(address):
     help="Module path to the Python function that will be used to set up the "
     "environment for the worker process.")
 @add_click_options(logging_options)
-def start(node_ip_address, address, port, redis_password, redis_shard_ports,
-          object_manager_port, node_manager_port, gcs_server_port,
-          min_worker_port, max_worker_port, worker_port_list,
+def start(node_ip_address, external_addresses, address, port, redis_password,
+          redis_shard_ports, object_manager_port, node_manager_port,
+          gcs_server_port, min_worker_port, max_worker_port, worker_port_list,
           ray_client_server_port, memory, object_store_memory,
           redis_max_memory, num_cpus, num_gpus, resources, head,
           include_dashboard, dashboard_host, dashboard_port, block,
@@ -539,6 +544,9 @@ def start(node_ip_address, address, port, redis_password, redis_shard_ports,
         num_redis_shards = None
         # Start Ray on the head node.
         if redis_shard_ports is not None:
+            if external_addresses is not None:
+                raise Exception("If --external-addresses is provided, "
+                                "--redis-shard-ports should not be proved.")
             redis_shard_ports = redis_shard_ports.split(",")
             # Infer the number of Redis shards from the ports if the number is
             # not provided.
@@ -552,6 +560,18 @@ def start(node_ip_address, address, port, redis_password, redis_shard_ports,
             raise Exception("If --head is passed in, a Redis server will be "
                             "started, so a Redis address should not be "
                             "provided.")
+
+        if external_addresses is not None:
+            external_addresses = external_addresses.split(",")
+            ray_params.update_if_absent(external_addresses=external_addresses)
+            if len(external_addresses) > 1:
+                num_redis_shards = len(external_addresses) - 1
+            if redis_password == ray_constants.REDIS_DEFAULT_PASSWORD:
+                cli_logger.warning(
+                    "`{}` should not be specified as empty string if external"
+                    " redis server(s) `{}` points to requires no password.",
+                    cf.bold("--redis-password"),
+                    cf.bold("--external-addresses"))
 
         node_ip_address = services.get_node_ip_address()
 
@@ -620,6 +640,13 @@ def start(node_ip_address, address, port, redis_password, redis_shard_ports,
             cli_logger.print(cf.bold("  ray stop"))
     else:
         # Start Ray on a non-head node.
+        if external_addresses is not None:
+            cli_logger.abort("`{}` should not be specified without `{}`.",
+                             cf.bold("--external-addresses"),
+                             cf.bold("--head"))
+
+            raise Exception("If --head is not passed in, "
+                            "--external-addresses is not allowed")
         if not (port is None):
             cli_logger.abort("`{}` should not be specified without `{}`.",
                              cf.bold("--port"), cf.bold("--head"))
