@@ -258,6 +258,7 @@ def get_address_info_from_redis_helper(redis_address,
         raise RuntimeError(
             "Redis has started but no raylets have registered yet.")
 
+    ip_head_uses_to_reach_here = get_node_ip_address(redis_address)
     relevant_client = None
     for client_info in client_table:
         if not client_info["Alive"]:
@@ -265,7 +266,7 @@ def get_address_info_from_redis_helper(redis_address,
         client_node_ip_address = client_info["NodeManagerAddress"]
         if (client_node_ip_address == node_ip_address
                 or (client_node_ip_address == "127.0.0.1"
-                    and redis_ip_address == get_node_ip_address())
+                    and redis_ip_address == ip_head_uses_to_reach_here)
                 or client_node_ip_address == redis_ip_address):
             relevant_client = client_info
             break
