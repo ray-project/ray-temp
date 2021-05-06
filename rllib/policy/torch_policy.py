@@ -168,11 +168,11 @@ class TorchPolicy(Policy):
         # between of which another model call is made (e.g. to compute an
         # action).
         self._lock = threading.RLock()
-
-        self._state_inputs = self.model.get_initial_state()
-        self._is_recurrent = len(self._state_inputs) > 0
         # Auto-update model's inference view requirements, if recurrent.
-        self._update_model_view_requirements_from_init_state()
+        if self.model is not None:
+            self._update_model_view_requirements_from_init_state()
+        self._is_recurrent = len(self._init_state) > 0
+
         # Combine view_requirements for Model and Policy.
         self.view_requirements.update(self.model.view_requirements)
 
@@ -278,6 +278,8 @@ class TorchPolicy(Policy):
         if self.model:
             self.model.eval()
 
+        extra_outs = {}
+
         if self.action_sampler_fn:
             action_dist = dist_inputs = None
             actions, logp, state_out = self.action_sampler_fn(
@@ -322,8 +324,14 @@ class TorchPolicy(Policy):
                         raise e
             else:
                 dist_class = self.dist_class
-                dist_inputs, state_out = self.model(input_dict, state_batches,
-                                                    seq_lens)
+                # Deprecated: ModelV2.
+                if isinstance(self.model, ModelV2):
+                    dist_inputs, state_out = self.model(
+                        input_dict, state_batches, seq_lens)
+                # Native torch.nn.Module.
+                else:
+                    dist_inputs, state_out, extra_outs = \
+                        self.model(input_dict)
 
             if not (isinstance(dist_class, functools.partial)
                     or issubclass(dist_class, TorchDistributionWrapper)):
@@ -346,6 +354,7 @@ class TorchPolicy(Policy):
         # Add default and custom fetches.
         extra_fetches = self.extra_action_out(input_dict, state_batches,
                                               self.model, action_dist)
+        extra_fetches.update(extra_outs)
 
         # Action-dist inputs.
         if dist_inputs is not None:
@@ -431,8 +440,13 @@ class TorchPolicy(Policy):
             # Default action-dist inputs calculation.
             else:
                 dist_class = self.dist_class
-                dist_inputs, _ = self.model(input_dict, state_batches,
-                                            seq_lens)
+                # Deprecated: ModelV2.
+                if isinstance(self.model, ModelV2):
+                    dist_inputs, _ = self.model(input_dict, state_batches,
+                                                seq_lens)
+                # Native torch.nn.Module.
+                else:
+                    dist_inputs, _, _ = self.model(input_dict)
 
             action_dist = dist_class(dist_inputs, self.model)
             log_likelihoods = action_dist.logp(input_dict[SampleBatch.ACTIONS])
@@ -460,7 +474,7 @@ class TorchPolicy(Policy):
         # Step the optimizers.
         self.apply_gradients(_directStepOptimizerSingleton)
 
-        if self.model:
+        if self.model and isinstance(self.model, ModelV2):
             fetches["model"] = self.model.metrics()
         fetches.update({"custom_metrics": learn_stats})
 
@@ -785,7 +799,8 @@ class TorchPolicy(Policy):
 
                     # Call Model's custom-loss with Policy loss outputs and
                     # train_batch.
-                    loss_out = model.custom_loss(loss_out, sample_batch)
+                    if model and isinstance(model, ModelV2):
+                        loss_out = model.custom_loss(loss_out, sample_batch)
 
                     assert len(loss_out) == len(self._optimizers)
 

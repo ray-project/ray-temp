@@ -39,10 +39,8 @@ MODEL_DEFAULTS: ModelConfigDict = {
     # If True, try to use a native (tf.keras.Model or torch.Module) default
     # model instead of our built-in ModelV2 defaults.
     # If False (default), use "classic" ModelV2 default models.
-    # Note that this currently only works for:
-    # 1) framework != torch AND
-    # 2) fully connected and CNN default networks as well as
-    # auto-wrapped LSTM- and attention nets.
+    # Note that this currently only works for fully connected and
+    # CNN default networks, as well as auto-wrapped LSTM- and attention nets.
     "_use_default_native_models": False,
 
     # === Built-in options ===
@@ -599,6 +597,7 @@ class ModelCatalog:
             # Wrap in the requested interface.
             wrapper = ModelCatalog._wrap_if_needed(v2_class, model_interface)
 
+            # Native Keras Model.
             if issubclass(wrapper, tf.keras.Model):
                 model = wrapper(
                     input_space=obs_space,
@@ -626,22 +625,42 @@ class ModelCatalog:
                     model_config.get("use_attention"):
 
                 from ray.rllib.models.torch.attention_net import \
-                    AttentionWrapper
-                from ray.rllib.models.torch.recurrent_net import LSTMWrapper
+                    AttentionWrapper, Torch_AttentionWrapper
+                from ray.rllib.models.torch.recurrent_net import LSTMWrapper, \
+                    Torch_LSTMWrapper
 
                 wrapped_cls = v2_class
-                forward = wrapped_cls.forward
                 if model_config.get("use_lstm"):
-                    v2_class = ModelCatalog._wrap_if_needed(
-                        wrapped_cls, LSTMWrapper)
+                    if not issubclass(wrapped_cls, ModelV2):
+                        v2_class = Torch_LSTMWrapper
+                        model_config["wrapped_cls"] = wrapped_cls
+                    else:
+                        v2_class = ModelCatalog._wrap_if_needed(
+                            wrapped_cls, LSTMWrapper)
+                        v2_class._wrapped_forward = wrapped_cls.forward
                 else:
-                    v2_class = ModelCatalog._wrap_if_needed(
-                        wrapped_cls, AttentionWrapper)
-
-                v2_class._wrapped_forward = forward
+                    if not issubclass(wrapped_cls, ModelV2):
+                        v2_class = Torch_AttentionWrapper
+                        model_config["wrapped_cls"] = wrapped_cls
+                    else:
+                        v2_class = ModelCatalog._wrap_if_needed(
+                            wrapped_cls, AttentionWrapper)
+                        v2_class._wrapped_forward = wrapped_cls.forward
 
             # Wrap in the requested interface.
             wrapper = ModelCatalog._wrap_if_needed(v2_class, model_interface)
+
+            # Native Torch Module.
+            if not issubclass(wrapper, ModelV2):
+                model = wrapper(
+                    input_space=obs_space,
+                    action_space=action_space,
+                    num_outputs=num_outputs,
+                    name=name,
+                    **dict(model_kwargs, **model_config),
+                )
+                return model
+
             return wrapper(obs_space, action_space, num_outputs, model_config,
                            name, **model_kwargs)
 
@@ -781,23 +800,25 @@ class ModelCatalog:
 
         VisionNet = None
         ComplexNet = None
-        Keras_FCNet = None
-        Keras_VisionNet = None
+        Native_FCNet = None
+        Native_VisionNet = None
 
         if framework in ["tf2", "tf", "tfe"]:
             from ray.rllib.models.tf.fcnet import \
                 FullyConnectedNetwork as FCNet, \
-                Keras_FullyConnectedNetwork as Keras_FCNet
+                Keras_FullyConnectedNetwork as Native_FCNet
             from ray.rllib.models.tf.visionnet import \
                 VisionNetwork as VisionNet, \
-                Keras_VisionNetwork as Keras_VisionNet
+                Keras_VisionNetwork as Native_VisionNet
             from ray.rllib.models.tf.complex_input_net import \
                 ComplexInputNetwork as ComplexNet
         elif framework == "torch":
-            from ray.rllib.models.torch.fcnet import (FullyConnectedNetwork as
-                                                      FCNet)
-            from ray.rllib.models.torch.visionnet import (VisionNetwork as
-                                                          VisionNet)
+            from ray.rllib.models.torch.fcnet import \
+                FullyConnectedNetwork as FCNet, \
+                Torch_FullyConnectedNetwork as Native_FCNet
+            from ray.rllib.models.torch.visionnet import \
+                VisionNetwork as VisionNet, \
+                Torch_VisionNetwork as Native_VisionNet
             from ray.rllib.models.torch.complex_input_net import \
                 ComplexInputNetwork as ComplexNet
         elif framework == "jax":
@@ -827,9 +848,12 @@ class ModelCatalog:
                 len(input_space.shape) == 1 or (
                 len(input_space.shape) == 2 and (
                 num_framestacks == "auto" or num_framestacks <= 1)):
-            # Keras native requested AND no auto-rnn-wrapping.
-            if model_config.get("_use_default_native_models") and Keras_FCNet:
-                return Keras_FCNet
+            # Keras/torch native requested.
+            if model_config.get("_use_default_native_models"):
+                if Native_FCNet:
+                    return Native_FCNet
+                else:
+                    return FCNet
             # Classic ModelV2 FCNet.
             else:
                 return FCNet
@@ -838,8 +862,9 @@ class ModelCatalog:
             raise NotImplementedError("No non-FC default net for JAX yet!")
 
         # Last resort: Conv2D stack for single image spaces.
-        if model_config.get("_use_default_native_models") and Keras_VisionNet:
-            return Keras_VisionNet
+        if model_config.get("_use_default_native_models"):
+            if Native_VisionNet:
+                return Native_VisionNet
         return VisionNet
 
     @staticmethod

@@ -65,7 +65,7 @@ class MyCallbacks(DefaultCallbacks):
 class TestPPO(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        ray.init()
+        ray.init(local_mode=True)  #TODO
 
     @classmethod
     def tearDownClass(cls):
@@ -82,7 +82,7 @@ class TestPPO(unittest.TestCase):
         # Settings in case we use an LSTM.
         config["model"]["lstm_cell_size"] = 10
         config["model"]["max_seq_len"] = 20
-        # Use default-native keras models whenever possible.
+        # Use default-native keras/torch models whenever possible.
         config["model"]["_use_default_native_models"] = True
 
         config["train_batch_size"] = 128
@@ -90,7 +90,7 @@ class TestPPO(unittest.TestCase):
         config["compress_observations"] = True
         num_iterations = 2
 
-        for _ in framework_iterator(config):
+        for _ in framework_iterator(config, frameworks="torch"):  #TODO:all
             for env in ["CartPole-v0", "MsPacmanNoFrameskip-v4"]:
                 print("Env={}".format(env))
                 for lstm in [True, False]:
@@ -101,7 +101,7 @@ class TestPPO(unittest.TestCase):
 
                     trainer = ppo.PPOTrainer(config=config, env=env)
                     for i in range(num_iterations):
-                        trainer.train()
+                        print(trainer.train())
                     check_compute_single_action(
                         trainer,
                         include_prev_action_reward=True,
