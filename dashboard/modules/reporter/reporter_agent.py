@@ -22,6 +22,7 @@ from ray.core.generated import reporter_pb2_grpc
 from ray.autoscaler._private.util import (DEBUG_AUTOSCALING_STATUS)
 from ray._private.metrics_agent import MetricsAgent, Gauge, Record
 import psutil
+import platform
 
 logger = logging.getLogger(__name__)
 
@@ -34,6 +35,14 @@ except ImportError:
     gpustat = None
     logger.warning(
         "Install gpustat with 'pip install gpustat' to enable GPU monitoring.")
+
+if platform.uname()[4] == "aarch64":
+    try:
+        from jtop import jtop
+    except ImportError:
+        jtop = None
+        logger.warning(
+            "Install jetson_stats with 'pip install jetson-stats' to enable GPU monitoring.")
 
 
 def recursive_asdict(o):
@@ -187,25 +196,46 @@ class ReporterAgent(dashboard_utils.DashboardAgentModule,
         else:
             return psutil.cpu_percent()
 
-    @staticmethod
-    def _get_gpu_usage():
-        if gpustat is None:
-            return []
+    def _get_gpu_usage(self):
         gpu_utilizations = []
-        gpus = []
-        try:
-            gpus = gpustat.new_query().gpus
-        except Exception as e:
-            logger.debug(f"gpustat failed to retrieve GPU information: {e}")
-        for gpu in gpus:
-            # Note the keys in this dict have periods which throws
-            # off javascript so we change .s to _s
-            gpu_data = {
-                "_".join(key.split(".")): val
-                for key, val in gpu.entry.items()
-            }
-            gpu_utilizations.append(gpu_data)
+        if platform.uname()[4] != "aarch64":
+            if gpustat is None:
+                return []
+            gpus = []
+            try:
+                gpus = gpustat.new_query().gpus
+            except Exception as e:
+                logger.debug(f"gpustat failed to retrieve GPU information: {e}")
+            for gpu in gpus:
+                # Note the keys in this dict have periods which throws
+                # off javascript so we change .s to _s
+                gpu_data = {
+                    "_".join(key.split(".")): val
+                    for key, val in gpu.entry.items()
+                }
+                gpu_utilizations.append(gpu_data)
+        else:
+            if jtop is None:
+                return []
+            gpu_utilizations = self._get_gpu_usage_jetson()
+
         return gpu_utilizations
+    
+    @staticmethod
+    def _get_gpu_usage_jetson():
+        gpu_utilizations_jetson = []
+        gpu_data = {}
+        with jtop() as jetson:
+            gpu_data["index"] = 0
+            # This is a bit of dirty hack. For some reason, Jetson's gpu
+            # can't be recognized when utilization is 0. 
+            gpu_data["utilization_gpu"] = jetson.gpu["val"] + 1
+            gpu_data["memory_used"] = jetson.ram["use"] /1000
+            gpu_data["memory_total"] = jetson.ram["tot"] /1000
+            gpu_data["processes"] = []
+        
+        gpu_utilizations_jetson.append(gpu_data)
+        return gpu_utilizations_jetson
 
     @staticmethod
     def _get_boot_time():
