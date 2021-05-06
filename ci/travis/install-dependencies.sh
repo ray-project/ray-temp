@@ -50,7 +50,28 @@ install_base() {
       pkg_install_helper build-essential curl unzip libunwind-dev python3-pip python3-setuptools \
         tmux gdb
       if [ "${LINUX_WHEELS-}" = 1 ]; then
-        pkg_install_helper docker
+        # Travis already has docker-ce 18.06 installed.
+        # If we install docker.io instead, it will stop the Docker service.
+        # Removing docker-ce (18.06.0~ce~3-0~ubuntu) ...
+        # Selecting previously unselected package containerd.
+        # Selecting previously unselected package docker.io.
+        # Created symlink /etc/systemd/system/multi-user.target.wants/containerd.service → /lib/systemd/system/containerd.service.
+        # Setting up docker.io (19.03.6-0ubuntu1~18.04.2) ...
+        # docker.service is a disabled or a static unit, not starting it.
+        # Job for docker.socket failed.
+        # And then when you try to use Docker:
+        # Cannot connect to the Docker daemon at unix:///var/run/docker.sock. Is the docker daemon running?
+        # There are ways to fix that, but it would be simpler to upgrade what they already have.
+        # Unfortunately, whatever Travis is doing with the cache/index, docker-ce-cli and containerd.io are not available:
+        # Unable to locate package docker-ce-cli
+        # Unable to locate package containerd.io
+        # And if we just apt-get install --assume-yes docker-ce, on bionic, we can't get anything newer than 18.06.
+        # And upgrading to focal breaks the build.
+        # So to use the newer Docker features, we'll have to go through the whole process.
+        # https://packages.ubuntu.com/bionic/docker.io
+        sudo apt-get install --assume-yes docker.io
+        sudo systemctl unmask docker
+        sudo systemctl restart docker
         if [ -n "${TRAVIS-}" ]; then
           sudo usermod -a -G docker travis
         fi
