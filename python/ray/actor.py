@@ -2,6 +2,7 @@ import inspect
 import logging
 import weakref
 import _thread
+from typing import TypeVar, Generic
 
 import ray.ray_constants as ray_constants
 import ray._raylet
@@ -743,7 +744,10 @@ class ActorClass:
         return actor_handle
 
 
-class ActorHandle:
+C = TypeVar("C")
+
+
+class ActorHandle(Generic[C]):
     """A handle to an actor.
 
     The fields in this class are prefixed with _ray_ to hide them from the user
