@@ -8,6 +8,7 @@ import logging
 import time
 import uuid
 from collections import defaultdict
+from functools import partial
 from typing import Any
 from typing import Callable
 from typing import Dict
@@ -58,6 +59,30 @@ def backoff(timeout: int) -> int:
     if timeout > MAX_TIMEOUT_SEC:
         timeout = MAX_TIMEOUT_SEC
     return timeout
+
+
+def short_polling_loop(
+        getter_function: Callable[[float], Any],
+        deadline: Optional[float],
+        log_retry_message: str = "Internal retry for short polling loop"
+) -> Any:
+    res = None
+    # Implement non-blocking get with a short-polling loop. This allows
+    # cancellation of gets via Ctrl-C, since we never block for long.
+    while True:
+        try:
+            if deadline:
+                op_timeout = min(MAX_BLOCKING_OPERATION_TIME_S,
+                                 max(deadline - time.monotonic(), 0.001))
+            else:
+                op_timeout = MAX_BLOCKING_OPERATION_TIME_S
+            res = getter_function(op_timeout)
+            break
+        except GetTimeoutError:
+            if deadline and time.monotonic() > deadline:
+                raise
+            logger.error(log_retry_message)
+    return res
 
 
 class Worker:
@@ -181,29 +206,14 @@ class Worker:
             raise Exception("Can't get something that's not a "
                             "list of IDs or just an ID: %s" % type(vals))
         if timeout is None:
-            timeout = 0
             deadline = None
         else:
             deadline = time.monotonic() + timeout
         out = []
         for obj_ref in to_get:
-            res = None
-            # Implement non-blocking get with a short-polling loop. This allows
-            # cancellation of gets via Ctrl-C, since we never block for long.
-            while True:
-                try:
-                    if deadline:
-                        op_timeout = min(
-                            MAX_BLOCKING_OPERATION_TIME_S,
-                            max(deadline - time.monotonic(), 0.001))
-                    else:
-                        op_timeout = MAX_BLOCKING_OPERATION_TIME_S
-                    res = self._get(obj_ref, op_timeout)
-                    break
-                except GetTimeoutError:
-                    if deadline and time.monotonic() > deadline:
-                        raise
-                    logger.debug("Internal retry for get {}".format(obj_ref))
+            res = short_polling_loop(
+                partial(self._get, obj_ref), deadline,
+                f"Internal retry for getting {obj_ref}")
             out.append(res)
         if single:
             out = out[0]
@@ -259,7 +269,35 @@ class Worker:
                 raise
         return ClientObjectRef(resp.id)
 
-    # TODO(ekl) respect MAX_BLOCKING_OPERATION_TIME_S for wait too
+    def _wait(self, object_ids: List[bytes], num_returns: int,
+              deadline: Optional[float], timeout: Optional[float]):
+        data = {
+            "object_ids": object_ids,
+            "num_returns": num_returns,
+            "timeout": timeout if (timeout is not None) else -1,
+            "client_id": self._client_id,
+        }
+        req = ray_client_pb2.WaitRequest(**data)
+        resp = self.server.WaitObject(req, metadata=self.metadata)
+        if not resp.valid:
+            # TODO(ameer): improve error/exceptions messages.
+            raise Exception("Client Wait request failed. Reference invalid?")
+
+        client_ready_object_ids = [
+            ClientObjectRef(ref) for ref in resp.ready_object_ids
+        ]
+        client_remaining_object_ids = [
+            ClientObjectRef(ref) for ref in resp.remaining_object_ids
+        ]
+
+        # Once the real deadline is passed, we want to pass up an actual
+        # tuple, not an error.
+        final_call = deadline and time.monotonic() > deadline
+        if len(client_ready_object_ids) < num_returns and not final_call:
+            raise GetTimeoutError("Fake Timemout Error for non-blocking wait")
+
+        return (client_ready_object_ids, client_remaining_object_ids)
+
     def wait(self,
              object_refs: List[ClientObjectRef],
              *,
@@ -274,25 +312,18 @@ class Worker:
             if not isinstance(ref, ClientObjectRef):
                 raise TypeError("wait() expected a list of ClientObjectRef, "
                                 f"got list containing {type(ref)}")
-        data = {
-            "object_ids": [object_ref.id for object_ref in object_refs],
-            "num_returns": num_returns,
-            "timeout": timeout if (timeout is not None) else -1,
-            "client_id": self._client_id,
-        }
-        req = ray_client_pb2.WaitRequest(**data)
-        resp = self.server.WaitObject(req, metadata=self.metadata)
-        if not resp.valid:
-            # TODO(ameer): improve error/exceptions messages.
-            raise Exception("Client Wait request failed. Reference invalid?")
-        client_ready_object_ids = [
-            ClientObjectRef(ref) for ref in resp.ready_object_ids
-        ]
-        client_remaining_object_ids = [
-            ClientObjectRef(ref) for ref in resp.remaining_object_ids
-        ]
 
-        return (client_ready_object_ids, client_remaining_object_ids)
+        if timeout is None:
+            deadline = None
+        else:
+            deadline = time.monotonic() + timeout
+
+        two_lists = short_polling_loop(
+            partial(self._wait, [object_ref.id for object_ref in object_refs],
+                    num_returns, deadline), deadline,
+            f"Internal retry for ray.wait on {object_refs}")
+
+        return two_lists
 
     def call_remote(self, instance, *args, **kwargs) -> List[bytes]:
         task = instance._prepare_client_task()
