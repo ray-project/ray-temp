@@ -111,6 +111,17 @@ def _check_if_docker_files_modified():
     return affected
 
 
+def _test_gpu_images(image: str) -> None:
+    if "gpu" not in image:
+        return
+    try:
+        DOCKER_CLIENT.containers.run(
+            image, "stat /usr/local/cuda/bin/nvcc", detach=False)
+    except docker.errors.ContainerError as e:
+        print("NVCC not found on a GPU image!")
+        raise e
+
+
 def _build_cpu_gpu_images(image_name, no_cache=True) -> List[str]:
     built_images = []
     for gpu in ["-cpu", "-gpu"]:
@@ -170,6 +181,8 @@ def _build_cpu_gpu_images(image_name, no_cache=True) -> List[str]:
 
             print("BUILT: ", tagged_name)
             built_images.append(tagged_name)
+            if gpu == "-gpu":
+                _test_gpu_images(tagged_name)
     return built_images
 
 
@@ -424,7 +437,6 @@ if __name__ == "__main__":
         copy_wheels(build_type == HUMAN)
         base_images_built = build_or_pull_base_images(args.base)
         build_ray()
-        build_ray_ml()
 
         if build_type in {MERGE, PR}:  # Skipping push on buildkite
             valid_branch = _valid_branch()
