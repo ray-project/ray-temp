@@ -58,6 +58,8 @@ Custom Envs and Models
    Example of how to handle variable-length or parametric action spaces.
 - `Eager execution <https://github.com/ray-project/ray/blob/master/rllib/examples/eager_execution.py>`__:
    Example of how to leverage TensorFlow eager to simplify debugging and design of custom models and policies.
+- `Differentiable Neural Computer <https://github.com/ray-project/ray/blob/master/rllib/examples/neural_computer.py>`__:
+   Example of DeepMind's Differentiable Neural Computer for partially-observable environments
 
 Serving and Offline
 -------------------
