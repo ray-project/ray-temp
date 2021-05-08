@@ -1904,6 +1904,24 @@ copy_to_workspace(
     dstdir = "python/ray/streaming",
 )
 
+gen_rule(
+    name = "build_streaming",
+    srcs = select({
+        "@bazel_tools//src/conditions:windows": [
+        ],
+        "//conditions:default": [
+            "cp_streaming",
+            "//streaming:copy_streaming_py_proto",
+        ],
+    }),
+    outs = ["build_streaming.out"],
+    cmd = """
+        date > $@
+    """,
+    local = 1,
+    tags = ["no-cache"],
+)
+
 copy_to_workspace(
     name = "cp_all_py_proto",
     srcs = [":all_py_proto"],
@@ -1941,7 +1959,6 @@ genrule(
     name = "install_py_proto",
     srcs = [
         ":cp_all_py_proto",
-        "//streaming:copy_streaming_py_proto",
     ],
     outs = ["install_py_proto.out"],
     cmd = """
@@ -1961,7 +1978,7 @@ genrule(
     name = "ray_pkg",
     srcs = [
         ":cp_raylet_so",
-        ":cp_streaming",
+        ":build_streaming",
         ":python_sources",
         ":install_py_proto",
         ":cp_redis",
