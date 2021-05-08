@@ -10,14 +10,18 @@ import os
 import re
 import select
 import socket
+import subprocess
 import sys
+import urllib.request
 import uuid
 from pdb import Pdb
 import setproctitle
+import time
 import traceback
 
 import ray
 from ray.experimental.internal_kv import _internal_kv_del, _internal_kv_put
+import ray.services
 
 PY3 = sys.version_info[0] == 3
 log = logging.getLogger(__name__)
@@ -84,7 +88,7 @@ class RemotePdb(Pdb):
         self._listen_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self._listen_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR,
                                        True)
-        self._listen_socket.bind((host, port))
+        self._listen_socket.bind(("0.0.0.0", port))
 
     def listen(self):
         if not self._quiet:
@@ -193,6 +197,7 @@ def connect_ray_pdb(host=None,
         quiet = bool(os.environ.get("REMOTE_PDB_QUIET", ""))
     if not breakpoint_uuid:
         breakpoint_uuid = uuid.uuid4().hex
+    host = urllib.request.urlopen("https://checkip.amazonaws.com").read().decode().strip()
     rdb = RemotePdb(
         breakpoint_uuid=breakpoint_uuid,
         host=host,
@@ -200,7 +205,7 @@ def connect_ray_pdb(host=None,
         patch_stdstreams=patch_stdstreams,
         quiet=quiet)
     sockname = rdb._listen_socket.getsockname()
-    pdb_address = "{}:{}".format(sockname[0], sockname[1])
+    pdb_address = "{}:{}".format(host, sockname[1])
     parentframeinfo = inspect.getouterframes(inspect.currentframe())[2]
     data = {
         "proctitle": setproctitle.getproctitle(),
@@ -238,8 +243,29 @@ def post_mortem():
 
 
 def connect_pdb_client(host, port):
-    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    s.connect((host, port))
+    local_host = urllib.request.urlopen("https://checkip.amazonaws.com").read().decode().strip()
+    if os.environ.get("RAY_DEBUG_SSH_COMMAND") and host != local_host:
+        cmd = os.environ["RAY_DEBUG_SSH_COMMAND"].format(host=host, port=port)
+        p = subprocess.Popen(
+            cmd,
+            universal_newlines=True, shell=True, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+        stat = p.poll()
+        while stat is None:
+            stat = p.poll()
+        if stat != 0:
+            stdout, _ = p.communicate()
+            print("Error connecting to remote host: ", stdout)
+            print("Command was: ", cmd)
+
+    while True:
+        try:
+            s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            s.connect(("localhost", port))
+            break
+        except ConnectionRefusedError:
+            import time
+            time.sleep(0.1)
+
 
     while True:
         # Get the list of sockets which are readable.
@@ -259,3 +285,59 @@ def connect_pdb_client(host, port):
                 # User entered a message.
                 msg = sys.stdin.readline()
                 s.send(msg.encode())
+
+
+def continue_debug_session():
+    """Continue active debugging session.
+
+    This function will connect 'ray debug' to the right debugger
+    when a user is stepping between Ray tasks.
+    """
+    active_sessions = ray.experimental.internal_kv._internal_kv_list(
+        "RAY_PDB_")
+
+    for active_session in active_sessions:
+        if active_session.startswith(b"RAY_PDB_CONTINUE"):
+            print("Continuing pdb session in different process...")
+            key = b"RAY_PDB_" + active_session[len("RAY_PDB_CONTINUE_"):]
+            while True:
+                data = ray.experimental.internal_kv._internal_kv_get(key)
+                if data:
+                    session = json.loads(data)
+                    if "exit_debugger" in session:
+                        ray.experimental.internal_kv._internal_kv_del(key)
+                        return
+                    host, port = session["pdb_address"].split(":")
+                    ray.util.rpdb.connect_pdb_client(host, int(port))
+                    ray.experimental.internal_kv._internal_kv_del(key)
+                    continue_debug_session()
+                    return
+                time.sleep(1.0)
+
+
+def run_debug_loop():
+
+    while True:
+        continue_debug_session()
+
+        active_sessions = ray.experimental.internal_kv._internal_kv_list(
+            "RAY_PDB_")
+        print("Active breakpoints:")
+        for i, active_session in enumerate(active_sessions):
+            data = json.loads(
+                ray.experimental.internal_kv._internal_kv_get(active_session))
+            print(
+                str(i) + ": " + data["proctitle"] + " | " + data["filename"] +
+                ":" + str(data["lineno"]))
+            print(data["traceback"])
+        inp = input("Enter breakpoint index or press enter to refresh: ")
+        if inp == "":
+            print()
+            continue
+        else:
+            index = int(inp)
+            session = json.loads(
+                ray.experimental.internal_kv._internal_kv_get(
+                    active_sessions[index]))
+            host, port = session["pdb_address"].split(":")
+            ray.util.rpdb.connect_pdb_client(host, int(port))
