@@ -61,6 +61,7 @@ class CoreWorkerDirectTaskSubmitter {
       int64_t lease_timeout_ms, std::shared_ptr<ActorCreatorInterface> actor_creator,
       uint32_t max_tasks_in_flight_per_worker =
           RayConfig::instance().max_tasks_in_flight_per_worker(),
+      bool work_stealing = RayConfig::instance().work_stealing(),
       absl::optional<boost::asio::steady_timer> cancel_timer = absl::nullopt)
       : rpc_address_(rpc_address),
         local_lease_client_(lease_client),
@@ -73,6 +74,7 @@ class CoreWorkerDirectTaskSubmitter {
         actor_creator_(std::move(actor_creator)),
         client_cache_(core_worker_client_pool),
         max_tasks_in_flight_per_worker_(max_tasks_in_flight_per_worker),
+        work_stealing_(work_stealing),
         cancel_retry_timer_(std::move(cancel_timer)) {}
 
   /// Schedule a task for direct submission to a worker.
@@ -136,6 +138,43 @@ class CoreWorkerDirectTaskSubmitter {
       const google::protobuf::RepeatedPtrField<rpc::ResourceMapEntry> &assigned_resources,
       const SchedulingKey &scheduling_key) EXCLUSIVE_LOCKS_REQUIRED(mu_);
 
+  /// This function takes care of returning a worker to the Raylet.
+  /// \param[in] addr The address of the worker.
+  /// \param[in] was_error Whether the task failed to be submitted.
+  void ReturnWorker(const rpc::WorkerAddress addr, bool was_error,
+                    const SchedulingKey &scheduling_key) EXCLUSIVE_LOCKS_REQUIRED(mu_);
+
+  /// Check that the scheduling_key_entries_ hashmap is empty.
+  inline bool CheckNoSchedulingKeyEntries() const EXCLUSIVE_LOCKS_REQUIRED(mu_) {
+    return scheduling_key_entries_.empty();
+  }
+
+  /// Find the optimal victim (if there is any) for stealing work
+  ///
+  /// \param[in] scheduling_key The SchedulingKey of the thief.
+  /// \param[in] victim_addr The pointer to a variable that the function will fill with
+  /// the address of the victim, if one is found \param[out] A boolean indicating whether
+  /// we found a suitable victim or not
+  bool FindOptimalVictimForStealing(const SchedulingKey &scheduling_key,
+                                    rpc::WorkerAddress thief_addr,
+                                    rpc::Address *victim_raw_addr)
+      EXCLUSIVE_LOCKS_REQUIRED(mu_);
+
+  /// Look for workers with a surplus of tasks in flight, and, if it is possible,
+  /// steal some of those tasks and submit them to the current worker. If no tasks
+  /// are available for stealing, return the worker to the Raylet.
+  ///
+  /// \param[in] thief_addr The address of the worker that has finished its own work,
+  ///                       and is ready for stealing.
+  /// \param[in] was_error Whether the last task failed to be submitted to the worker.
+  /// \param[in] scheduling_key The scheduling class of the worker.
+  /// \param[in] assigned_resources Resource ids previously assigned to the worker.
+  void StealTasksIfNeeded(
+      const rpc::WorkerAddress &thief_addr, bool was_error,
+      const SchedulingKey &scheduling_key,
+      const google::protobuf::RepeatedPtrField<rpc::ResourceMapEntry> &assigned_resources)
+      EXCLUSIVE_LOCKS_REQUIRED(mu_);
+
   /// Push a task to a specific worker.
   void PushNormalTask(const rpc::WorkerAddress &addr,
                       rpc::CoreWorkerClientInterface &client,
@@ -143,11 +182,6 @@ class CoreWorkerDirectTaskSubmitter {
                       const TaskSpecification &task_spec,
                       const google::protobuf::RepeatedPtrField<rpc::ResourceMapEntry>
                           &assigned_resources);
-
-  /// Check that the scheduling_key_entries_ hashmap is empty.
-  bool CheckNoSchedulingKeyEntries() const EXCLUSIVE_LOCKS_REQUIRED(mu_) {
-    return scheduling_key_entries_.empty();
-  }
 
   /// Address of our RPC server.
   rpc::Address rpc_address_;
@@ -193,22 +227,28 @@ class CoreWorkerDirectTaskSubmitter {
   // worker using a single lease.
   const uint32_t max_tasks_in_flight_per_worker_;
 
+  // work_stealing_ indicates whether the work stealing mode is enabled
+  const bool work_stealing_;
+
   /// A LeaseEntry struct is used to condense the metadata about a single executor:
   /// (1) The lease client through which the worker should be returned
   /// (2) The expiration time of a worker's lease.
   /// (3) The number of tasks that are currently in flight to the worker
-  /// (4) The resources assigned to the worker
-  /// (5) The SchedulingKey assigned to tasks that will be sent to the worker
+  /// (4) A boolean that indicates whether we have launched a StealTasks request, and we
+  /// are waiting for the stolen tasks (5) The resources assigned to the worker (6) The
+  /// SchedulingKey assigned to tasks that will be sent to the worker
   struct LeaseEntry {
     std::shared_ptr<WorkerLeaseInterface> lease_client;
     int64_t lease_expiration_time;
     uint32_t tasks_in_flight;
+    bool currently_stealing;
     google::protobuf::RepeatedPtrField<rpc::ResourceMapEntry> assigned_resources;
     SchedulingKey scheduling_key;
 
     LeaseEntry(
         std::shared_ptr<WorkerLeaseInterface> lease_client = nullptr,
         int64_t lease_expiration_time = 0, uint32_t tasks_in_flight = 0,
+        bool currently_stealing = false, int64_t stolen_tasks_to_wait_for = 0,
         google::protobuf::RepeatedPtrField<rpc::ResourceMapEntry> assigned_resources =
             google::protobuf::RepeatedPtrField<rpc::ResourceMapEntry>(),
         SchedulingKey scheduling_key = std::make_tuple(0, std::vector<ObjectID>(),
@@ -216,12 +256,33 @@ class CoreWorkerDirectTaskSubmitter {
         : lease_client(lease_client),
           lease_expiration_time(lease_expiration_time),
           tasks_in_flight(tasks_in_flight),
+          currently_stealing(currently_stealing),
           assigned_resources(assigned_resources),
           scheduling_key(scheduling_key) {}
 
     // Check whether the pipeline to the worker associated with a LeaseEntry is full.
-    bool PipelineToWorkerFull(uint32_t max_tasks_in_flight_per_worker) const {
+    inline bool PipelineToWorkerFull(uint32_t max_tasks_in_flight_per_worker) const {
       return tasks_in_flight == max_tasks_in_flight_per_worker;
+    }
+
+    // Check whether the worker is a thief who is in the process of stealing tasks.
+    // Knowing whether a thief is currently stealing is important to prevent the thief
+    // from initiating another StealTasks request or from being returned to the raylet
+    // until stealing has completed.
+    inline bool WorkerIsStealing() const { return currently_stealing; }
+
+    // Once stealing has begun, updated the thief's currently_stealing flag to reflect the
+    // new state.
+    inline void SetWorkerIsStealing() {
+      RAY_CHECK(!currently_stealing);
+      currently_stealing = true;
+    }
+
+    // Once stealing has completed, updated the thief's currently_stealing flag to reflect
+    // the new state.
+    inline void SetWorkerDoneStealing() {
+      RAY_CHECK(currently_stealing);
+      currently_stealing = false;
     }
   };
 
@@ -233,6 +294,7 @@ class CoreWorkerDirectTaskSubmitter {
     // Keep track of pending worker lease requests to the raylet.
     std::pair<std::shared_ptr<WorkerLeaseInterface>, TaskID> pending_lease_request =
         std::make_pair(nullptr, TaskID::Nil());
+    TaskSpecification resource_spec = TaskSpecification();
     // Tasks that are queued for execution. We keep an individual queue per
     // scheduling class to ensure fairness.
     std::deque<TaskSpecification> task_queue = std::deque<TaskSpecification>();
@@ -245,7 +307,7 @@ class CoreWorkerDirectTaskSubmitter {
 
     // Check whether it's safe to delete this SchedulingKeyEntry from the
     // scheduling_key_entries_ hashmap.
-    bool CanDelete() const {
+    inline bool CanDelete() const {
       if (!pending_lease_request.first && task_queue.empty() &&
           active_workers.size() == 0 && total_tasks_in_flight == 0) {
         return true;
@@ -256,7 +318,7 @@ class CoreWorkerDirectTaskSubmitter {
 
     // Check whether the pipelines to the active workers associated with a
     // SchedulingKeyEntry are all full.
-    bool AllPipelinesToWorkersFull(uint32_t max_tasks_in_flight_per_worker) const {
+    inline bool AllPipelinesToWorkersFull(uint32_t max_tasks_in_flight_per_worker) const {
       return total_tasks_in_flight ==
              (active_workers.size() * max_tasks_in_flight_per_worker);
     }

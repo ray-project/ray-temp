@@ -62,12 +62,17 @@ TEST(SchedulingQueueTest, TestWaitForObjects) {
   ActorSchedulingQueue queue(io_service, waiter);
   int n_ok = 0;
   int n_rej = 0;
+
   auto fn_ok = [&n_ok](rpc::SendReplyCallback callback) { n_ok++; };
   auto fn_rej = [&n_rej](rpc::SendReplyCallback callback) { n_rej++; };
   queue.Add(0, -1, fn_ok, fn_rej, nullptr);
-  queue.Add(1, -1, fn_ok, fn_rej, nullptr, TaskID::Nil(), ObjectIdsToRefs({obj1}));
-  queue.Add(2, -1, fn_ok, fn_rej, nullptr, TaskID::Nil(), ObjectIdsToRefs({obj2}));
-  queue.Add(3, -1, fn_ok, fn_rej, nullptr, TaskID::Nil(), ObjectIdsToRefs({obj3}));
+  queue.Add(1, -1, fn_ok, fn_rej, nullptr, nullptr, TaskID::Nil(),
+            ObjectIdsToRefs({obj1}));
+  queue.Add(2, -1, fn_ok, fn_rej, nullptr, nullptr, TaskID::Nil(),
+            ObjectIdsToRefs({obj2}));
+  queue.Add(3, -1, fn_ok, fn_rej, nullptr, nullptr, TaskID::Nil(),
+            ObjectIdsToRefs({obj3}));
+
   ASSERT_EQ(n_ok, 1);
 
   waiter.Complete(0);
@@ -87,10 +92,13 @@ TEST(SchedulingQueueTest, TestWaitForObjectsNotSubjectToSeqTimeout) {
   ActorSchedulingQueue queue(io_service, waiter);
   int n_ok = 0;
   int n_rej = 0;
+
   auto fn_ok = [&n_ok](rpc::SendReplyCallback callback) { n_ok++; };
   auto fn_rej = [&n_rej](rpc::SendReplyCallback callback) { n_rej++; };
   queue.Add(0, -1, fn_ok, fn_rej, nullptr);
-  queue.Add(1, -1, fn_ok, fn_rej, nullptr, TaskID::Nil(), ObjectIdsToRefs({obj1}));
+  queue.Add(1, -1, fn_ok, fn_rej, nullptr, nullptr, TaskID::Nil(),
+            ObjectIdsToRefs({obj1}));
+
   ASSERT_EQ(n_ok, 1);
   io_service.run();
   ASSERT_EQ(n_rej, 0);
